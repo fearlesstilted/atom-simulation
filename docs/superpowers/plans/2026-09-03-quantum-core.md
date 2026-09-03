@@ -263,13 +263,13 @@ Expected: all checks pass with no raylib linkage in `quantum_test`.
 - Consumes: `probabilityDensity()` only.
 - Produces: deterministic scientific regression checks; no production types.
 
-- [ ] **Step 1: Add a deterministic spherical quadrature helper in the test**
+- [x] **Step 1: Add a deterministic spherical quadrature helper in the test**
 
 Integrate with midpoint bins over `r`, `cos(theta)`, and `phi`; include the
 Jacobian `r*r`. Use `rMax = 8.0 * n * n / Z`, 320 radial bins, 48 cosine bins,
 and 64 azimuth bins. Return both normalization and density-weighted radius.
 
-- [ ] **Step 2: Add normalization and expectation checks**
+- [x] **Step 2: Add normalization and expectation checks**
 
 For states `1s`, `2s`, `2p(m=0)`, and `4d(m=2)`:
 
@@ -281,12 +281,12 @@ checkNear(integral.meanRadius, expectedRadius, 0.05 * expectedRadius,
           "mean radius matches hydrogenic expectation");
 ```
 
-- [ ] **Step 3: Verify the test fails for an intentional normalization error**
+- [x] **Step 3: Verify the test fails for an intentional normalization error**
 
 Temporarily multiply the production radial normalization by `1.1`, run CTest,
 and confirm the normalization check fails. Revert that one-line mutation.
 
-- [ ] **Step 4: Run the restored scientific suite**
+- [x] **Step 4: Run the restored scientific suite**
 
 Run:
 

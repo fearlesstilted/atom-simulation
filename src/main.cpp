@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include "raymath.h"
+#include "quantum.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -12,20 +13,6 @@ struct Particle {
     Vector3 position;
 };
 
-struct Orbital {
-    int n;
-    int l;
-    int m;
-};
-
-bool isValid(const Orbital& orbital)
-{
-    return orbital.n >= 1
-        && orbital.l >= 0
-        && orbital.l < orbital.n
-        && std::abs(orbital.m) <= orbital.l;
-}
-
 int wrap(int value, int minimum, int maximum)
 {
     if (value > maximum) return minimum;
@@ -33,7 +20,8 @@ int wrap(int value, int minimum, int maximum)
     return value;
 }
 
-void changeOrbital(Orbital& orbital, char quantumNumber, int direction)
+void changeOrbital(quantum::ComplexState& orbital, char quantumNumber,
+                   int direction)
 {
     constexpr int maximumN = 5;
 
@@ -49,53 +37,12 @@ void changeOrbital(Orbital& orbital, char quantumNumber, int direction)
     }
 }
 
-float orbitalDensity(Vector3 p, const Orbital& orbital)
-{
-    constexpr double pi = 3.14159265358979323846;
-    constexpr double rootTwo = 1.41421356237309504880;
-
-    const double radius = std::sqrt(
-        static_cast<double>(p.x) * p.x
-        + static_cast<double>(p.y) * p.y
-        + static_cast<double>(p.z) * p.z
-    );
-    const double rho = 2.0 * radius / orbital.n;
-    const int radialDegree = orbital.n - orbital.l - 1;
-    const int absM = std::abs(orbital.m);
-
-    const double radialNorm = std::sqrt(
-        std::pow(2.0 / orbital.n, 3)
-        * std::tgamma(radialDegree + 1.0)
-        / (2.0 * orbital.n * std::tgamma(orbital.n + orbital.l + 1.0))
-    );
-    const double radial = radialNorm
-        * std::exp(-rho / 2.0)
-        * std::pow(rho, orbital.l)
-        * std::assoc_laguerre(radialDegree, 2 * orbital.l + 1, rho);
-
-    const double cosTheta = radius > 0.0 ? p.z / radius : 1.0;
-    const double phi = std::atan2(p.y, p.x);
-    const double angularNorm = std::sqrt(
-        (2.0 * orbital.l + 1.0) / (4.0 * pi)
-        * std::tgamma(orbital.l - absM + 1.0)
-        / std::tgamma(orbital.l + absM + 1.0)
-    );
-    const double legendre = std::assoc_legendre(orbital.l, absM, cosTheta);
-
-    double angular = angularNorm * legendre;
-    if (orbital.m > 0) angular *= rootTwo * std::cos(absM * phi);
-    if (orbital.m < 0) angular *= rootTwo * std::sin(absM * phi);
-
-    const double amplitude = radial * angular;
-    return static_cast<float>(amplitude * amplitude);
-}
-
 std::vector<Particle> makeOrbitalCloud(
     std::size_t count,
-    const Orbital& orbital
+    const quantum::ComplexState& orbital
 )
 {
-    assert(isValid(orbital));
+    assert(quantum::isValid(orbital));
 
     std::mt19937 random(42);
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
@@ -112,7 +59,8 @@ std::vector<Particle> makeOrbitalCloud(
     float currentDensity = 0.0f;
     while (currentDensity < 0.000000000001f) {
         current = {initial(random), initial(random), initial(random)};
-        currentDensity = orbitalDensity(current, orbital);
+        currentDensity = static_cast<float>(quantum::probabilityDensity(
+            {current.x, current.y, current.z}, orbital));
     }
 
     constexpr int burnIn = 4000;
@@ -126,7 +74,9 @@ std::vector<Particle> makeOrbitalCloud(
             current.z + step(random),
         };
 
-        const float candidateDensity = orbitalDensity(candidate, orbital);
+        const float candidateDensity = static_cast<float>(
+            quantum::probabilityDensity(
+                {candidate.x, candidate.y, candidate.z}, orbital));
         const float acceptance = std::min(1.0f, candidateDensity / currentDensity);
         if (unit(random) < acceptance) {
             current = candidate;
@@ -217,15 +167,9 @@ int main()
 {
     constexpr int screenWidth = 1600;
     constexpr int screenHeight = 900;
-    Orbital orbital{4, 2, 2};
+    quantum::ComplexState orbital{4, 2, 2, 1};
 
-    assert(isValid(orbital));
-    assert(!isValid({2, 2, 0}));
-    assert(orbitalDensity({1.0f, 0.0f, 0.0f}, {2, 1, 0}) < 0.0001f);
-    assert(orbitalDensity({0.0f, 0.0f, 1.0f}, {2, 1, 0}) > 0.0f);
-    assert(orbitalDensity({2.0f, 0.0f, 0.0f}, {2, 0, 0}) < 0.000001f);
-
-    Orbital controlTest{1, 0, 0};
+    quantum::ComplexState controlTest{1, 0, 0, 1};
     changeOrbital(controlTest, 'n', -1);
     assert(controlTest.n == 5);
 
@@ -306,6 +250,7 @@ int main()
         }
 
         if (orbitalChanged) {
+            assert(quantum::isValid(orbital));
             particles = makeOrbitalCloud(30000, orbital);
             transforms = makeTransforms(particles, 0.055f);
         }

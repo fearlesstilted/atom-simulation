@@ -310,24 +310,24 @@ Expected: all states pass normalization and mean-radius tolerances.
   `quantum::isValid()`, and `quantum::probabilityDensity()`.
 - Produces: unchanged `atom` user experience backed by the tested module.
 
-- [ ] **Step 1: Link the application to the quantum library**
+- [x] **Step 1: Link the application to the quantum library**
 
 ```cmake
 target_link_libraries(atom PRIVATE raylib quantum)
 ```
 
-- [ ] **Step 2: Replace duplicate domain declarations**
+- [x] **Step 2: Replace duplicate domain declarations**
 
 Delete `Orbital`, `isValid()`, and `orbitalDensity()` from `src/main.cpp`.
 Include `quantum.hpp`, use `quantum::ComplexState`, and convert the sampler's
 candidate coordinates to `quantum::PositionAu` at its one call site.
 
-- [ ] **Step 3: Preserve control invariants**
+- [x] **Step 3: Preserve control invariants**
 
 Keep the existing `N/L/M` behavior, but call `quantum::isValid()` after each
 change. Keep camera-only changes independent from sample regeneration.
 
-- [ ] **Step 4: Run all verification**
+- [x] **Step 4: Run all verification**
 
 ```bash
 cmake --build build
@@ -338,7 +338,7 @@ timeout 3 ./build/atom
 Expected: scientific tests pass, shaders compile, the window opens, and no
 compiler warnings are emitted.
 
-- [ ] **Step 5: Confirm the deletion test**
+- [x] **Step 5: Confirm the deletion test**
 
 Search:
 

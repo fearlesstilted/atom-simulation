@@ -33,11 +33,11 @@
 
 **Files:** Create `src/sampler.hpp`, `src/sampler.cpp`, and `tests/sampler_test.cpp`; modify `CMakeLists.txt`.
 
-- [ ] Define `SamplerConfig`, `Walker`, `Diagnostics`, and `Sampler` with `reset`, `advance`, `walkers`, and `diagnostics`.
-- [ ] Add deterministic tests for repeatability, finite positions, acceptance bounds, movement, and sampled mean radius.
-- [ ] Implement central-difference `grad(log rho)`, asymmetric proposal correction, and batched updates.
-- [ ] Build and run all CTest tests.
-- [ ] Commit the verified sampler.
+- [x] Define `SamplerConfig`, `Walker`, `Diagnostics`, and `Sampler` with `reset`, `advance`, `walkers`, and `diagnostics`.
+- [x] Add deterministic tests for repeatability, finite positions, acceptance bounds, movement, and sampled mean radius.
+- [x] Implement central-difference `grad(log rho)`, asymmetric proposal correction, and batched updates.
+- [x] Build and run all CTest tests.
+- [x] Commit the verified sampler.
 
 ### Task 3: Animated Presentation
 

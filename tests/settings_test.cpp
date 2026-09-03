@@ -10,7 +10,8 @@ int main()
     const auto path = std::filesystem::temp_directory_path()
         / "atom-settings-test.txt";
     const settings::AppState expected{
-        {4, 2, -1, 1}, 31.5f, 1.2f, -0.4f, false, true, -0.12f};
+        {4, 2, -1, 1}, 31.5f, 1.2f, -0.4f, false, true, -0.12f,
+        true, 7.25};
 
     if (!settings::save(path, expected)) {
         std::cerr << "FAIL: settings save\n";
@@ -25,8 +26,20 @@ int main()
         || std::abs(actual.cameraPitch - expected.cameraPitch) > 1e-6f
         || actual.demoMode != expected.demoMode
         || actual.autoRotate != expected.autoRotate
-        || actual.autoRotationSpeed != expected.autoRotationSpeed) {
+        || actual.autoRotationSpeed != expected.autoRotationSpeed
+        || actual.superpositionMode != expected.superpositionMode
+        || std::abs(actual.quantumTimeAu - expected.quantumTimeAu) > 1e-9) {
         std::cerr << "FAIL: settings round trip\n";
+        return 1;
+    }
+
+    std::ofstream(path)
+        << "ATOM_SETTINGS 1 3 2 1 1 18 0.5 -0.25 0 1 0.2\n";
+    const auto legacy = settings::load(path);
+    if (legacy.orbital.n != 3 || legacy.cameraDistance != 18.0f
+        || legacy.demoMode || !legacy.autoRotate
+        || legacy.superpositionMode || legacy.quantumTimeAu != 0.0) {
+        std::cerr << "FAIL: legacy settings load\n";
         return 1;
     }
 

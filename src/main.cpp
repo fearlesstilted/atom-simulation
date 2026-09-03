@@ -230,7 +230,14 @@ int main()
         std::string(GetApplicationDirectory()) + "atom.settings";
     const settings::AppState saved = settings::load(settingsPath);
     quantum::ComplexState orbital = saved.orbital;
+    quantum::ComplexState secondaryOrbital = sequence::nextState(orbital);
+    bool superpositionMode = saved.superpositionMode;
+    double quantumTimeAu = saved.quantumTimeAu;
     sampling::Sampler sampler(orbital);
+    if (superpositionMode) {
+        sampler.reset(quantum::equalSuperposition(orbital, secondaryOrbital));
+        sampler.setTime(quantumTimeAu);
+    }
     std::vector<Particle> particles = makeParticles(sampler.walkers());
 
     Mesh sphere = GenMeshSphere(1.0f, 6, 8);
@@ -293,6 +300,13 @@ int main()
             demoMode = !demoMode;
             demoElapsed = 0.0f;
         }
+        bool orbitalChanged = false;
+        if (IsKeyPressed(KEY_S)) {
+            superpositionMode = !superpositionMode;
+            quantumTimeAu = 0.0;
+            demoMode = false;
+            orbitalChanged = true;
+        }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             const Vector2 movement = GetMouseDelta();
@@ -312,8 +326,6 @@ int main()
         };
 
         const int direction = shiftHeld ? -1 : 1;
-        bool orbitalChanged = false;
-
         if (IsKeyPressed(KEY_N)) {
             changeOrbital(orbital, 'n', direction);
             orbitalChanged = true;
@@ -333,7 +345,13 @@ int main()
         if (demoMode) {
             demoElapsed += deltaTime;
             if (demoElapsed >= demoInterval) {
-                orbital = sequence::nextState(orbital);
+                if (superpositionMode) {
+                    orbital = secondaryOrbital;
+                    superpositionMode = false;
+                } else {
+                    superpositionMode = true;
+                }
+                quantumTimeAu = 0.0;
                 demoElapsed = 0.0f;
                 orbitalChanged = true;
             }
@@ -341,10 +359,21 @@ int main()
 
         if (orbitalChanged) {
             assert(quantum::isValid(orbital));
-            sampler.reset(orbital);
+            secondaryOrbital = sequence::nextState(orbital);
+            if (superpositionMode) {
+                sampler.reset(quantum::equalSuperposition(
+                    orbital, secondaryOrbital));
+            } else {
+                sampler.reset(orbital);
+            }
             retargetParticles(particles, sampler.walkers(), true);
         }
 
+        if (superpositionMode) {
+            constexpr double quantumTimePerSecond = 4.0;
+            quantumTimeAu += quantumTimePerSecond * deltaTime;
+            sampler.setTime(quantumTimeAu);
+        }
         sampler.advance();
         retargetParticles(particles, sampler.walkers(), false);
         updateParticles(particles, deltaTime);
@@ -396,10 +425,11 @@ int main()
 
         DrawText(
             TextFormat(
-                "n=%d  l=%d  m=%d  mode=%s  rotation=%s  MALA=%.1f%%",
+                "n=%d l=%d m=%d  quantum=%s  mode=%s  rotation=%s  MALA=%.1f%%",
                 orbital.n,
                 orbital.l,
                 orbital.m,
+                superpositionMode ? "superposition" : "eigenstate",
                 demoMode ? "demo" : "manual",
                 autoRotate ? "auto" : "manual",
                 sampler.diagnostics().acceptanceRate() * 100.0
@@ -412,7 +442,7 @@ int main()
         DrawText("moving points: probability samples, not electron paths",
                  16, 34, 10, DARKGRAY);
         DrawText("color: complex phase arg(psi)", 16, 52, 10, DARKGRAY);
-        DrawText("D demo  |  N/L/M state  |  shift reverses",
+        DrawText("D demo  |  S superposition  |  N/L/M state  |  shift reverses",
                  16, 70, 10, DARKGRAY);
         DrawFPS(screenWidth - 100, 22);
 
@@ -427,6 +457,8 @@ int main()
         demoMode,
         autoRotate,
         autoRotationSpeed,
+        superpositionMode,
+        quantumTimeAu,
     });
     UnloadMesh(sphere);
     UnloadMaterial(material);

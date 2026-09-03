@@ -14,6 +14,8 @@ struct AppState {
     bool demoMode = true;
     bool autoRotate = false;
     float autoRotationSpeed = 0.12f;
+    bool superpositionMode = false;
+    double quantumTimeAu = 0.0;
 };
 
 AppState load(const std::filesystem::path& path);

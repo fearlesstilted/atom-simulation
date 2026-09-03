@@ -1,18 +1,29 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "quantum.hpp"
+#include "sampler.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
-#include <random>
 #include <string>
 #include <vector>
 
+enum class MotionPhase {
+    Moving,
+    FadingOut,
+    Entering,
+};
+
 struct Particle {
     Vector3 position;
+    Vector3 target;
+    Vector3 pendingTarget;
+    float opacity;
+    double phase;
+    MotionPhase motion;
 };
 
 float loadZoom(const std::string& path)
@@ -53,67 +64,91 @@ void changeOrbital(quantum::ComplexState& orbital, char quantumNumber,
     }
 }
 
-std::vector<Particle> makeOrbitalCloud(
-    std::size_t count,
-    const quantum::ComplexState& orbital
-)
+Vector3 displayPosition(quantum::PositionAu position)
 {
-    assert(quantum::isValid(orbital));
+    constexpr float scale = 0.38f;
+    return {
+        static_cast<float>(position.x) * scale,
+        static_cast<float>(position.y) * scale,
+        static_cast<float>(position.z) * scale,
+    };
+}
 
-    std::mt19937 random(42);
-    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
-    std::normal_distribution<float> initial(
-        0.0f,
-        orbital.n * orbital.n * 0.5f
-    );
-    std::normal_distribution<float> step(0.0f, orbital.n * 0.75f);
-
-    std::vector<Particle> particles;
-    particles.reserve(count);
-
-    Vector3 current{};
-    float currentDensity = 0.0f;
-    while (currentDensity < 0.000000000001f) {
-        current = {initial(random), initial(random), initial(random)};
-        currentDensity = static_cast<float>(quantum::probabilityDensity(
-            {current.x, current.y, current.z}, orbital));
+Vector3 spawnOutside(Vector3 target, std::size_t index)
+{
+    Vector3 direction = Vector3Normalize(target);
+    if (Vector3LengthSqr(direction) < 0.001f) {
+        const float angle = static_cast<float>(index) * 2.399963f;
+        direction = {std::cos(angle), std::sin(angle), 0.35f};
+        direction = Vector3Normalize(direction);
     }
+    const float extra = 2.5f + static_cast<float>(index % 17) * 0.08f;
+    return Vector3Add(target, Vector3Scale(direction, extra));
+}
 
-    constexpr int burnIn = 4000;
-    constexpr int thinning = 6;
-    int iteration = 0;
+std::vector<Particle> makeParticles(
+    const std::vector<sampling::Walker>& walkers)
+{
+    std::vector<Particle> particles;
+    particles.reserve(walkers.size());
+    for (std::size_t i = 0; i < walkers.size(); ++i) {
+        const Vector3 target = displayPosition(walkers[i].position);
+        particles.push_back({spawnOutside(target, i), target, target, 0.0f,
+                             walkers[i].phase, MotionPhase::Entering});
+    }
+    return particles;
+}
 
-    while (particles.size() < count) {
-        const Vector3 candidate{
-            current.x + step(random),
-            current.y + step(random),
-            current.z + step(random),
-        };
+void retargetParticles(std::vector<Particle>& particles,
+                       const std::vector<sampling::Walker>& walkers,
+                       bool forceRespawn)
+{
+    assert(particles.size() == walkers.size());
+    constexpr float longJump = 0.8f;
+    for (std::size_t i = 0; i < particles.size(); ++i) {
+        Particle& particle = particles[i];
+        const Vector3 next = displayPosition(walkers[i].position);
+        particle.phase = walkers[i].phase;
 
-        const float candidateDensity = static_cast<float>(
-            quantum::probabilityDensity(
-                {candidate.x, candidate.y, candidate.z}, orbital));
-        const float acceptance = std::min(1.0f, candidateDensity / currentDensity);
-        if (unit(random) < acceptance) {
-            current = candidate;
-            currentDensity = candidateDensity;
+        if (forceRespawn) {
+            particle.pendingTarget = next;
+            particle.motion = MotionPhase::FadingOut;
+        } else if (particle.motion == MotionPhase::FadingOut) {
+            particle.pendingTarget = next;
+        } else if (Vector3Distance(particle.target, next) > longJump) {
+            particle.pendingTarget = next;
+            particle.motion = MotionPhase::FadingOut;
+        } else {
+            particle.target = next;
+            particle.pendingTarget = next;
         }
+    }
+}
 
-        ++iteration;
-        if (iteration <= burnIn || iteration % thinning != 0) {
+void updateParticles(std::vector<Particle>& particles, float deltaTime)
+{
+    const float easing = 1.0f - std::exp(-7.0f * deltaTime);
+    for (std::size_t i = 0; i < particles.size(); ++i) {
+        Particle& particle = particles[i];
+        if (particle.motion == MotionPhase::FadingOut) {
+            particle.opacity = std::max(0.0f, particle.opacity - 3.0f * deltaTime);
+            if (particle.opacity == 0.0f) {
+                particle.target = particle.pendingTarget;
+                particle.position = spawnOutside(particle.target, i);
+                particle.motion = MotionPhase::Entering;
+            }
             continue;
         }
 
-        constexpr float displayScale = 0.38f;
-        const Vector3 displayPosition{
-            current.x * displayScale,
-            current.y * displayScale,
-            current.z * displayScale,
-        };
-        particles.push_back({displayPosition});
+        particle.position = Vector3Lerp(
+            particle.position, particle.target, easing);
+        if (particle.motion == MotionPhase::Entering) {
+            particle.opacity = std::min(1.0f, particle.opacity + 1.8f * deltaTime);
+            if (particle.opacity == 1.0f) {
+                particle.motion = MotionPhase::Moving;
+            }
+        }
     }
-
-    return particles;
 }
 
 std::vector<Matrix> makeTransforms(
@@ -124,8 +159,9 @@ std::vector<Matrix> makeTransforms(
     std::vector<Matrix> transforms;
     transforms.reserve(particles.size());
 
-    const Matrix scale = MatrixScale(sphereRadius, sphereRadius, sphereRadius);
     for (const Particle& particle : particles) {
+        const float radius = sphereRadius * particle.opacity;
+        const Matrix scale = MatrixScale(radius, radius, radius);
         const Vector3& p = particle.position;
         const Matrix translation = MatrixTranslate(p.x, p.y, p.z);
         transforms.push_back(MatrixMultiply(scale, translation));
@@ -189,8 +225,8 @@ int main()
     changeOrbital(controlTest, 'n', -1);
     assert(controlTest.n == 5);
 
-    std::vector<Particle> particles =
-        makeOrbitalCloud(30000, orbital);
+    sampling::Sampler sampler(orbital);
+    std::vector<Particle> particles = makeParticles(sampler.walkers());
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
@@ -223,6 +259,7 @@ int main()
     float autoRotationSpeed = 0.12f;
 
     while (!WindowShouldClose()) {
+        const float deltaTime = GetFrameTime();
         const bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT)
             || IsKeyDown(KEY_RIGHT_SHIFT);
 
@@ -240,7 +277,7 @@ int main()
             cameraPitch += movement.y * 0.005f;
             cameraPitch = std::clamp(cameraPitch, -1.45f, 1.45f);
         } else if (autoRotate) {
-            cameraYaw += autoRotationSpeed * GetFrameTime();
+            cameraYaw += autoRotationSpeed * deltaTime;
         }
 
         cameraDistance -= GetMouseWheelMove() * 1.2f;
@@ -269,9 +306,14 @@ int main()
 
         if (orbitalChanged) {
             assert(quantum::isValid(orbital));
-            particles = makeOrbitalCloud(30000, orbital);
-            transforms = makeTransforms(particles, 0.055f);
+            sampler.reset(orbital);
+            retargetParticles(particles, sampler.walkers(), true);
         }
+
+        sampler.advance();
+        retargetParticles(particles, sampler.walkers(), false);
+        updateParticles(particles, deltaTime);
+        transforms = makeTransforms(particles, 0.055f);
 
         const float cameraPosition[] = {
             camera.position.x,
@@ -300,17 +342,20 @@ int main()
 
         DrawText(
             TextFormat(
-                "n=%d  l=%d  m=%d  rotation=%s",
+                "n=%d  l=%d  m=%d  rotation=%s  MALA=%.1f%%",
                 orbital.n,
                 orbital.l,
                 orbital.m,
-                autoRotate ? "auto" : "manual"
+                autoRotate ? "auto" : "manual",
+                sampler.diagnostics().acceptanceRate() * 100.0
             ),
             16,
             16,
             10,
             DARKGRAY
         );
+        DrawText("moving points: probability samples, not electron paths",
+                 16, 34, 10, DARKGRAY);
         DrawFPS(screenWidth - 100, 22);
 
         EndDrawing();

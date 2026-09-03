@@ -17,7 +17,7 @@ target_link_libraries(sampler PUBLIC quantum)
 target_compile_options(sampler PRIVATE -Wall -Wextra -pedantic)
 
 add_executable(atom src/main.cpp)
-target_link_libraries(atom PRIVATE raylib quantum)
+target_link_libraries(atom PRIVATE raylib quantum sampler)
 target_compile_options(atom PRIVATE -Wall -Wextra -pedantic)
 
 include(CTest)

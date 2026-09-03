@@ -43,12 +43,12 @@
 
 **Files:** Modify `src/main.cpp` and `CMakeLists.txt`.
 
-- [ ] Replace static cloud generation with `Sampler` and one visual particle per walker.
-- [ ] Ease nearby accepted samples; fade long jumps out, respawn outside, and fade in.
-- [ ] Preserve manual state and camera controls; reset only after `n/l/m` changes.
-- [ ] Display state, sample meaning, acceptance rate, and motion status.
-- [ ] Build, run CTest, and smoke-test the window.
-- [ ] Commit the integrated motion.
+- [x] Replace static cloud generation with `Sampler` and one visual particle per walker.
+- [x] Ease nearby accepted samples; fade long jumps out, respawn outside, and fade in.
+- [x] Preserve manual state and camera controls; reset only after `n/l/m` changes.
+- [x] Display state, sample meaning, acceptance rate, and motion status.
+- [x] Build, run CTest, and smoke-test the window.
+- [x] Commit the integrated motion.
 
 ### Task 4: Phase-Aware Rendering
 

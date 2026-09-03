@@ -6,12 +6,28 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <fstream>
 #include <random>
+#include <string>
 #include <vector>
 
 struct Particle {
     Vector3 position;
 };
+
+float loadZoom(const std::string& path)
+{
+    constexpr float defaultZoom = 24.0f;
+    std::ifstream input(path);
+    float value = defaultZoom;
+    if (!(input >> value) || !std::isfinite(value)) return defaultZoom;
+    return std::clamp(value, 4.0f, 40.0f);
+}
+
+void saveZoom(const std::string& path, float value)
+{
+    std::ofstream(path) << std::clamp(value, 4.0f, 40.0f) << '\n';
+}
 
 int wrap(int value, int minimum, int maximum)
 {
@@ -179,6 +195,8 @@ int main()
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
     SetTargetFPS(60);
+    const std::string settingsPath =
+        std::string(GetApplicationDirectory()) + "atom.settings";
 
     Mesh sphere = GenMeshSphere(1.0f, 6, 8);
     Shader shader = LoadShaderFromMemory(vertexShaderCode, fragmentShaderCode);
@@ -200,7 +218,7 @@ int main()
 
     float cameraYaw = 0.8f;
     float cameraPitch = 0.45f;
-    float cameraDistance = 16.0f;
+    float cameraDistance = loadZoom(settingsPath);
     bool autoRotate = false;
     float autoRotationSpeed = 0.12f;
 
@@ -298,6 +316,7 @@ int main()
         EndDrawing();
     }
 
+    saveZoom(settingsPath, cameraDistance);
     UnloadMesh(sphere);
     UnloadMaterial(material);
     CloseWindow();

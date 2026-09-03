@@ -2,6 +2,7 @@
 #include "raymath.h"
 #include "quantum.hpp"
 #include "sampler.hpp"
+#include "settings.hpp"
 #include "state_sequence.hpp"
 
 #include <algorithm>
@@ -9,7 +10,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <fstream>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -31,20 +32,6 @@ struct Particle {
 
 constexpr std::size_t phaseBinCount = 12;
 using PhaseBatches = std::array<std::vector<Matrix>, phaseBinCount>;
-
-float loadZoom(const std::string& path)
-{
-    constexpr float defaultZoom = 24.0f;
-    std::ifstream input(path);
-    float value = defaultZoom;
-    if (!(input >> value) || !std::isfinite(value)) return defaultZoom;
-    return std::clamp(value, 4.0f, 40.0f);
-}
-
-void saveZoom(const std::string& path, float value)
-{
-    std::ofstream(path) << std::clamp(value, 4.0f, 40.0f) << '\n';
-}
 
 int wrap(int value, int minimum, int maximum)
 {
@@ -187,73 +174,80 @@ void updatePhaseBatches(
     }
 }
 
-const char* vertexShaderCode = R"glsl(
-#version 330
-in vec3 vertexPosition;
-in vec3 vertexNormal;
-in mat4 instanceTransform;
-uniform mat4 mvp;
-out vec3 fragPosition;
-out vec3 fragNormal;
-
-void main()
+void configureShader(Shader& shader)
 {
-    vec4 worldPosition = instanceTransform * vec4(vertexPosition, 1.0);
-    fragPosition = worldPosition.xyz;
-    fragNormal = normalize(mat3(instanceTransform) * vertexNormal);
-    gl_Position = mvp * worldPosition;
+    shader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(shader, "mvp");
+    shader.locs[SHADER_LOC_MATRIX_MODEL] =
+        GetShaderLocationAttrib(shader, "instanceTransform");
+    shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
 }
-)glsl";
 
-const char* fragmentShaderCode = R"glsl(
-#version 330
-in vec3 fragPosition;
-in vec3 fragNormal;
-uniform vec3 viewPos;
-uniform vec3 phaseColor;
-out vec4 finalColor;
+struct ShaderWatcher {
+    std::filesystem::path vertexPath;
+    std::filesystem::path fragmentPath;
+    std::filesystem::file_time_type vertexStamp;
+    std::filesystem::file_time_type fragmentStamp;
+};
 
-void main()
+bool reloadShaderIfChanged(ShaderWatcher& watcher, Shader& shader,
+                           Material& material, int& phaseColorLocation)
 {
-    vec3 normal = normalize(fragNormal);
-    vec3 lightDirection = normalize(vec3(0.4, 0.8, 0.3));
-    vec3 viewDirection = normalize(viewPos - fragPosition);
+    const auto vertexStamp = std::filesystem::last_write_time(watcher.vertexPath);
+    const auto fragmentStamp = std::filesystem::last_write_time(watcher.fragmentPath);
+    if (vertexStamp == watcher.vertexStamp
+        && fragmentStamp == watcher.fragmentStamp) {
+        return false;
+    }
+    watcher.vertexStamp = vertexStamp;
+    watcher.fragmentStamp = fragmentStamp;
 
-    float diffuse = max(dot(normal, lightDirection), 0.0);
-    float specular = pow(max(dot(reflect(-lightDirection, normal),
-                                 viewDirection), 0.0), 24.0);
-    vec3 color = phaseColor * (0.35 + 1.15 * diffuse);
-    color += vec3(specular * 1.5);
-    finalColor = vec4(color, 1.0);
+    Shader replacement = LoadShader(
+        watcher.vertexPath.c_str(), watcher.fragmentPath.c_str());
+    if (!IsShaderValid(replacement)) return false;
+
+    const Shader previous = shader;
+    shader = replacement;
+    configureShader(shader);
+    phaseColorLocation = GetShaderLocation(shader, "phaseColor");
+    material.shader = shader;
+    UnloadShader(previous);
+    return true;
 }
-)glsl";
 
 int main()
 {
     constexpr int screenWidth = 1600;
     constexpr int screenHeight = 900;
-    quantum::ComplexState orbital{1, 0, 0, 1};
 
     quantum::ComplexState controlTest{1, 0, 0, 1};
     changeOrbital(controlTest, 'n', -1);
     assert(controlTest.n == 5);
-
-    sampling::Sampler sampler(orbital);
-    std::vector<Particle> particles = makeParticles(sampler.walkers());
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
     SetTargetFPS(60);
     const std::string settingsPath =
         std::string(GetApplicationDirectory()) + "atom.settings";
+    const settings::AppState saved = settings::load(settingsPath);
+    quantum::ComplexState orbital = saved.orbital;
+    sampling::Sampler sampler(orbital);
+    std::vector<Particle> particles = makeParticles(sampler.walkers());
 
     Mesh sphere = GenMeshSphere(1.0f, 6, 8);
-    Shader shader = LoadShaderFromMemory(vertexShaderCode, fragmentShaderCode);
-    shader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(shader, "mvp");
-    shader.locs[SHADER_LOC_MATRIX_MODEL] =
-        GetShaderLocationAttrib(shader, "instanceTransform");
-    shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
-    const int phaseColorLocation = GetShaderLocation(shader, "phaseColor");
+    ShaderWatcher shaderWatcher{
+        std::filesystem::path(ATOM_SHADER_DIR) / "orbital.vert",
+        std::filesystem::path(ATOM_SHADER_DIR) / "orbital.frag",
+        {},
+        {},
+    };
+    shaderWatcher.vertexStamp =
+        std::filesystem::last_write_time(shaderWatcher.vertexPath);
+    shaderWatcher.fragmentStamp =
+        std::filesystem::last_write_time(shaderWatcher.fragmentPath);
+    Shader shader = LoadShader(shaderWatcher.vertexPath.c_str(),
+                               shaderWatcher.fragmentPath.c_str());
+    configureShader(shader);
+    int phaseColorLocation = GetShaderLocation(shader, "phaseColor");
 
     Material material = LoadMaterialDefault();
     material.shader = shader;
@@ -267,17 +261,24 @@ int main()
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    float cameraYaw = 0.8f;
-    float cameraPitch = 0.45f;
-    float cameraDistance = loadZoom(settingsPath);
-    bool autoRotate = false;
-    float autoRotationSpeed = 0.12f;
-    bool demoMode = true;
+    float cameraYaw = saved.cameraYaw;
+    float cameraPitch = saved.cameraPitch;
+    float cameraDistance = saved.cameraDistance;
+    bool autoRotate = saved.autoRotate;
+    float autoRotationSpeed = saved.autoRotationSpeed;
+    bool demoMode = saved.demoMode;
     float demoElapsed = 0.0f;
     constexpr float demoInterval = 6.0f;
+    float shaderCheckElapsed = 0.0f;
 
     while (!WindowShouldClose()) {
         const float deltaTime = GetFrameTime();
+        shaderCheckElapsed += deltaTime;
+        if (shaderCheckElapsed >= 0.25f) {
+            reloadShaderIfChanged(shaderWatcher, shader, material,
+                                  phaseColorLocation);
+            shaderCheckElapsed = 0.0f;
+        }
         const bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT)
             || IsKeyDown(KEY_RIGHT_SHIFT);
 
@@ -418,7 +419,15 @@ int main()
         EndDrawing();
     }
 
-    saveZoom(settingsPath, cameraDistance);
+    settings::save(settingsPath, {
+        orbital,
+        cameraDistance,
+        cameraYaw,
+        cameraPitch,
+        demoMode,
+        autoRotate,
+        autoRotationSpeed,
+    });
     UnloadMesh(sphere);
     UnloadMaterial(material);
     CloseWindow();

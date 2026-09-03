@@ -21,9 +21,16 @@ target_include_directories(state_sequence PUBLIC src)
 target_link_libraries(state_sequence PUBLIC quantum)
 target_compile_options(state_sequence PRIVATE -Wall -Wextra -pedantic)
 
+add_library(settings src/settings.cpp)
+target_include_directories(settings PUBLIC src)
+target_link_libraries(settings PUBLIC quantum)
+target_compile_options(settings PRIVATE -Wall -Wextra -pedantic)
+
 add_executable(atom src/main.cpp)
-target_link_libraries(atom PRIVATE raylib quantum sampler state_sequence)
+target_link_libraries(atom PRIVATE raylib quantum sampler state_sequence settings)
 target_compile_options(atom PRIVATE -Wall -Wextra -pedantic)
+target_compile_definitions(atom PRIVATE
+    ATOM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
 include(CTest)
 
@@ -38,3 +45,7 @@ add_test(NAME sampler_test COMMAND sampler_test)
 add_executable(state_sequence_test tests/state_sequence_test.cpp)
 target_link_libraries(state_sequence_test PRIVATE state_sequence)
 add_test(NAME state_sequence_test COMMAND state_sequence_test)
+
+add_executable(settings_test tests/settings_test.cpp)
+target_link_libraries(settings_test PRIVATE settings)
+add_test(NAME settings_test COMMAND settings_test)

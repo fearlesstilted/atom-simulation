@@ -48,7 +48,7 @@ Sampler::Sampler(const quantum::ComplexState& state, SamplerConfig config)
         || config.walkerCount == 0
         || config.updatesPerAdvance == 0
         || config.stepScale <= 0.0
-        || config.currentStrength < 0.0) {
+        || config.flowTimeScale < 0.0) {
         throw std::invalid_argument("invalid sampler configuration");
     }
     initializeWalkers();
@@ -96,10 +96,9 @@ quantum::PositionAu Sampler::proposalMean(
 
     const double step = config_.stepScale * state_.n / state_.nuclearCharge;
     const double dt = step * step;
-    const auto current = quantum::probabilityCurrentVelocity(position, state_);
-    drift.x = dt * (0.5 * drift.x + config_.currentStrength * current.x);
-    drift.y = dt * (0.5 * drift.y + config_.currentStrength * current.y);
-    drift.z = dt * (0.5 * drift.z + config_.currentStrength * current.z);
+    drift.x *= 0.5 * dt;
+    drift.y *= 0.5 * dt;
+    drift.z *= 0.5 * dt;
 
     const double driftLength = std::sqrt(lengthSquared(drift));
     const double maxDrift = 2.0 * step;
@@ -142,6 +141,30 @@ void Sampler::advanceWalker(Walker& walker)
         walker = {candidate, phaseAt(candidate, state_)};
         ++diagnostics_.accepted;
     }
+    applyProbabilityFlow(walker);
+}
+
+void Sampler::applyProbabilityFlow(Walker& walker) const
+{
+    const double cylindricalRadiusSquared =
+        walker.position.x * walker.position.x
+        + walker.position.y * walker.position.y;
+    if (state_.m == 0 || cylindricalRadiusSquared < 1e-20) return;
+
+    const auto velocity = quantum::probabilityCurrentVelocity(
+        walker.position, state_);
+    const double angularVelocity =
+        (walker.position.x * velocity.y - walker.position.y * velocity.x)
+        / cylindricalRadiusSquared;
+    const double angle = std::clamp(
+        config_.flowTimeScale * angularVelocity, -0.15, 0.15);
+    const double cosine = std::cos(angle);
+    const double sine = std::sin(angle);
+    const double x = walker.position.x;
+    const double y = walker.position.y;
+    walker.position.x = cosine * x - sine * y;
+    walker.position.y = sine * x + cosine * y;
+    walker.phase = phaseAt(walker.position, state_);
 }
 
 void Sampler::advance()

@@ -4,6 +4,7 @@
 #include "sampler.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -23,8 +24,12 @@ struct Particle {
     Vector3 pendingTarget;
     float opacity;
     double phase;
+    double targetPhase;
     MotionPhase motion;
 };
+
+constexpr std::size_t phaseBinCount = 12;
+using PhaseBatches = std::array<std::vector<Matrix>, phaseBinCount>;
 
 float loadZoom(const std::string& path)
 {
@@ -94,7 +99,8 @@ std::vector<Particle> makeParticles(
     for (std::size_t i = 0; i < walkers.size(); ++i) {
         const Vector3 target = displayPosition(walkers[i].position);
         particles.push_back({spawnOutside(target, i), target, target, 0.0f,
-                             walkers[i].phase, MotionPhase::Entering});
+                             walkers[i].phase, walkers[i].phase,
+                             MotionPhase::Entering});
     }
     return particles;
 }
@@ -108,7 +114,7 @@ void retargetParticles(std::vector<Particle>& particles,
     for (std::size_t i = 0; i < particles.size(); ++i) {
         Particle& particle = particles[i];
         const Vector3 next = displayPosition(walkers[i].position);
-        particle.phase = walkers[i].phase;
+        particle.targetPhase = walkers[i].phase;
 
         if (forceRespawn) {
             particle.pendingTarget = next;
@@ -135,6 +141,7 @@ void updateParticles(std::vector<Particle>& particles, float deltaTime)
             if (particle.opacity == 0.0f) {
                 particle.target = particle.pendingTarget;
                 particle.position = spawnOutside(particle.target, i);
+                particle.phase = particle.targetPhase;
                 particle.motion = MotionPhase::Entering;
             }
             continue;
@@ -142,6 +149,10 @@ void updateParticles(std::vector<Particle>& particles, float deltaTime)
 
         particle.position = Vector3Lerp(
             particle.position, particle.target, easing);
+        particle.phase += std::remainder(
+            particle.targetPhase - particle.phase,
+            2.0 * 3.14159265358979323846
+        ) * easing;
         if (particle.motion == MotionPhase::Entering) {
             particle.opacity = std::min(1.0f, particle.opacity + 1.8f * deltaTime);
             if (particle.opacity == 1.0f) {
@@ -151,23 +162,28 @@ void updateParticles(std::vector<Particle>& particles, float deltaTime)
     }
 }
 
-std::vector<Matrix> makeTransforms(
+void updatePhaseBatches(
+    PhaseBatches& batches,
     const std::vector<Particle>& particles,
     float sphereRadius
 )
 {
-    std::vector<Matrix> transforms;
-    transforms.reserve(particles.size());
+    constexpr double pi = 3.14159265358979323846;
+    for (auto& batch : batches) {
+        batch.clear();
+        batch.reserve(particles.size() / phaseBinCount + 1);
+    }
 
     for (const Particle& particle : particles) {
         const float radius = sphereRadius * particle.opacity;
         const Matrix scale = MatrixScale(radius, radius, radius);
         const Vector3& p = particle.position;
         const Matrix translation = MatrixTranslate(p.x, p.y, p.z);
-        transforms.push_back(MatrixMultiply(scale, translation));
+        const double normalizedPhase = (particle.phase + pi) / (2.0 * pi);
+        const auto bin = static_cast<std::size_t>(
+            std::floor(normalizedPhase * phaseBinCount)) % phaseBinCount;
+        batches[bin].push_back(MatrixMultiply(scale, translation));
     }
-
-    return transforms;
 }
 
 const char* vertexShaderCode = R"glsl(
@@ -193,6 +209,7 @@ const char* fragmentShaderCode = R"glsl(
 in vec3 fragPosition;
 in vec3 fragNormal;
 uniform vec3 viewPos;
+uniform vec3 phaseColor;
 out vec4 finalColor;
 
 void main()
@@ -204,13 +221,8 @@ void main()
     float diffuse = max(dot(normal, lightDirection), 0.0);
     float specular = pow(max(dot(reflect(-lightDirection, normal),
                                  viewDirection), 0.0), 24.0);
-    float edge = smoothstep(1.0, 8.0, length(fragPosition));
-    vec3 innerColor = vec3(1.0, 0.65, 0.2);
-    vec3 outerColor = vec3(0.45, 0.12, 0.9);
-    vec3 color = mix(innerColor, outerColor, edge);
-
-    color *= 0.45 + 0.85 * diffuse;
-    color += vec3(specular * 1.25);
+    vec3 color = phaseColor * (0.35 + 1.15 * diffuse);
+    color += vec3(specular * 1.5);
     finalColor = vec4(color, 1.0);
 }
 )glsl";
@@ -240,10 +252,12 @@ int main()
     shader.locs[SHADER_LOC_MATRIX_MODEL] =
         GetShaderLocationAttrib(shader, "instanceTransform");
     shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
+    const int phaseColorLocation = GetShaderLocation(shader, "phaseColor");
 
     Material material = LoadMaterialDefault();
     material.shader = shader;
-    std::vector<Matrix> transforms = makeTransforms(particles, 0.055f);
+    PhaseBatches phaseBatches;
+    updatePhaseBatches(phaseBatches, particles, 0.055f);
 
     Camera3D camera{};
     camera.position = {11.0f, 7.0f, 11.0f};
@@ -313,7 +327,7 @@ int main()
         sampler.advance();
         retargetParticles(particles, sampler.walkers(), false);
         updateParticles(particles, deltaTime);
-        transforms = makeTransforms(particles, 0.055f);
+        updatePhaseBatches(phaseBatches, particles, 0.055f);
 
         const float cameraPosition[] = {
             camera.position.x,
@@ -331,12 +345,31 @@ int main()
         ClearBackground({3, 4, 10, 255});
 
         BeginMode3D(camera);
-        DrawMeshInstanced(
-            sphere,
-            material,
-            transforms.data(),
-            static_cast<int>(transforms.size())
-        );
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (std::size_t bin = 0; bin < phaseBatches.size(); ++bin) {
+            auto& transforms = phaseBatches[bin];
+            if (transforms.empty()) continue;
+
+            const Color color = ColorFromHSV(
+                static_cast<float>(bin) * 360.0f / phaseBinCount,
+                0.72f,
+                1.0f
+            );
+            const float phaseColor[] = {
+                color.r / 255.0f,
+                color.g / 255.0f,
+                color.b / 255.0f,
+            };
+            SetShaderValue(shader, phaseColorLocation, phaseColor,
+                           SHADER_UNIFORM_VEC3);
+            DrawMeshInstanced(
+                sphere,
+                material,
+                transforms.data(),
+                static_cast<int>(transforms.size())
+            );
+        }
+        EndBlendMode();
         DrawSphere({0.0f, 0.0f, 0.0f}, 0.12f, GOLD);
         EndMode3D();
 
@@ -356,6 +389,7 @@ int main()
         );
         DrawText("moving points: probability samples, not electron paths",
                  16, 34, 10, DARKGRAY);
+        DrawText("color: complex phase arg(psi)", 16, 52, 10, DARKGRAY);
         DrawFPS(screenWidth - 100, 22);
 
         EndDrawing();

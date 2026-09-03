@@ -221,8 +221,11 @@ units, the `exp(i m phi)` phase gives:
 v = j / rho = m (-y, x, 0) / (x^2 + y^2)
 ```
 
-It is regularized to zero on the axis. This drift is included in the proposal
-and therefore also covered by the Metropolis correction.
+It is regularized to zero on the axis. Probability flow is applied after each
+MALA update as an exact azimuthal rotation. This operator-split step preserves
+`r`, `theta`, volume, and therefore `rho`, while retaining directed current;
+putting it inside ordinary Metropolis-Hastings would incorrectly restore
+detailed balance and erase the net flow.
 
 The sampler updates a bounded batch of walkers per frame. The presentation
 layer eases rendered positions toward accepted sample positions. Long jumps

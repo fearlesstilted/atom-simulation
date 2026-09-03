@@ -69,5 +69,29 @@ int main()
     check(std::abs(radiusSum / first.walkers().size() - 1.5) < 0.2,
           "sampled 1s mean radius matches expectation");
 
+    const sampling::SamplerConfig flowConfig{
+        1000, 1000, 777, 1e-8, 1.0};
+    sampling::Sampler positiveFlow({2, 1, 1, 1}, flowConfig);
+    sampling::Sampler negativeFlow({2, 1, -1, 1}, flowConfig);
+    const auto beforeFlow = positiveFlow.walkers();
+    positiveFlow.advance();
+    negativeFlow.advance();
+
+    double positiveTurn = 0.0;
+    double negativeTurn = 0.0;
+    for (std::size_t i = 0; i < beforeFlow.size(); ++i) {
+        const auto beforePosition = beforeFlow[i].position;
+        const auto positivePosition = positiveFlow.walkers()[i].position;
+        const auto negativePosition = negativeFlow.walkers()[i].position;
+        positiveTurn += beforePosition.x * positivePosition.y
+            - beforePosition.y * positivePosition.x;
+        negativeTurn += beforePosition.x * negativePosition.y
+            - beforePosition.y * negativePosition.x;
+        check(std::abs(radius(beforePosition) - radius(positivePosition)) < 1e-6,
+              "probability flow preserves radius");
+    }
+    check(positiveTurn > 0.0, "positive m flows counterclockwise");
+    check(negativeTurn < 0.0, "negative m reverses probability flow");
+
     return failures == 0 ? 0 : 1;
 }

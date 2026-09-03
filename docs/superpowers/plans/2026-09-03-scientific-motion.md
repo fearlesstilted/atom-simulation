@@ -54,7 +54,7 @@
 
 **Files:** Modify `src/main.cpp`.
 
-- [ ] Compute `arg(psi)` for each displayed sample and group transforms into twelve hue bins.
-- [ ] Render bounded instanced batches with an emissive phase-color uniform.
-- [ ] Verify stable 60 FPS, readable labels, clean shutdown, and all tests.
-- [ ] Commit and push the completed milestone.
+- [x] Compute `arg(psi)` for each displayed sample and group transforms into twelve hue bins.
+- [x] Render bounded instanced batches with an emissive phase-color uniform.
+- [x] Verify stable 60 FPS, readable labels, clean shutdown, and all tests.
+- [x] Commit and push the completed milestone.

@@ -14,7 +14,7 @@ struct SamplerConfig {
     std::size_t updatesPerAdvance = 768;
     std::uint32_t seed = 42;
     double stepScale = 0.60;
-    double currentStrength = 0.35;
+    double flowTimeScale = 1.0;
 };
 
 struct Walker {
@@ -42,6 +42,7 @@ public:
 private:
     quantum::PositionAu proposalMean(quantum::PositionAu position) const;
     void advanceWalker(Walker& walker);
+    void applyProbabilityFlow(Walker& walker) const;
     void initializeWalkers();
 
     quantum::ComplexState state_;

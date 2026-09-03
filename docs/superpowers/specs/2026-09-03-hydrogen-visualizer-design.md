@@ -198,3 +198,39 @@ and CMake/CTest.
 5. Add per-instance phase/sign data and phase-aware color.
 6. Add measured bloom and node/slice visualization.
 7. Design time-dependent superpositions as a separate milestone.
+
+## Scientific Motion
+
+The selected `n/l/m/Z` state remains fixed until explicit keyboard input.
+Motion represents Monte Carlo walkers sampling the stationary density, not
+electron trajectories. Each walker advances with a Metropolis-adjusted
+Langevin proposal targeting `rho = |psi|^2`:
+
+```text
+y = x + 0.5 h^2 grad(log(rho(x))) + h N(0, I)
+```
+
+The Metropolis-Hastings correction uses both forward and reverse proposal
+densities, so finite step size does not change the target distribution.
+The logarithmic gradient is evaluated by deterministic central differences.
+
+Complex eigenstates also expose the probability-current velocity. In atomic
+units, the `exp(i m phi)` phase gives:
+
+```text
+v = j / rho = m (-y, x, 0) / (x^2 + y^2)
+```
+
+It is regularized to zero on the axis. This drift is included in the proposal
+and therefore also covered by the Metropolis correction.
+
+The sampler updates a bounded batch of walkers per frame. The presentation
+layer eases rendered positions toward accepted sample positions. Long jumps
+fade out and re-enter from outside the cloud instead of drawing misleading
+paths through nodal regions. Opacity transitions are explicitly visual and do
+not alter sampler statistics.
+
+The default mode continuously advances walkers. `n/l/m` never cycle
+automatically. Manual state changes reseed all chains. Diagnostics show the
+proposal acceptance rate, and phase-aware color displays `arg(psi)` without
+encoding probability a second time.

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <variant>
 #include <vector>
 
 namespace sampling {
@@ -33,8 +34,12 @@ class Sampler {
 public:
     explicit Sampler(const quantum::ComplexState& state,
                      SamplerConfig config = {});
+    explicit Sampler(const quantum::Superposition& state,
+                     SamplerConfig config = {});
 
     void reset(const quantum::ComplexState& state);
+    void reset(const quantum::Superposition& state);
+    void setTime(double timeAu);
     void advance();
     const std::vector<Walker>& walkers() const;
     Diagnostics diagnostics() const;
@@ -44,8 +49,12 @@ private:
     void advanceWalker(Walker& walker);
     void applyProbabilityFlow(Walker& walker) const;
     void initializeWalkers();
+    double densityAt(quantum::PositionAu position) const;
+    double phaseAt(quantum::PositionAu position) const;
+    double spatialScale() const;
 
-    quantum::ComplexState state_;
+    std::variant<quantum::ComplexState, quantum::Superposition> state_;
+    double timeAu_ = 0.0;
     SamplerConfig config_;
     std::mt19937 random_;
     std::vector<Walker> walkers_;

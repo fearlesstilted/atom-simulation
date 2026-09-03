@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include <cstdlib>
 
@@ -78,6 +79,73 @@ PositionAu probabilityCurrentVelocity(PositionAu position,
 
     const double scale = state.m / cylindricalRadiusSquared;
     return {-scale * position.y, scale * position.x, 0.0};
+}
+
+double energyHartree(const ComplexState& state)
+{
+    const double z = state.nuclearCharge;
+    const double n = state.n;
+    return -(z * z) / (2.0 * n * n);
+}
+
+bool isValidSuperposition(const Superposition& state)
+{
+    const auto& first = state.terms[0];
+    const auto& second = state.terms[1];
+    const bool distinct = first.state.n != second.state.n
+        || first.state.l != second.state.l
+        || first.state.m != second.state.m;
+    const double coefficientNorm = std::norm(first.coefficient)
+        + std::norm(second.coefficient);
+    const bool finiteCoefficients =
+        std::isfinite(first.coefficient.real())
+        && std::isfinite(first.coefficient.imag())
+        && std::isfinite(second.coefficient.real())
+        && std::isfinite(second.coefficient.imag());
+    return isValid(first.state)
+        && isValid(second.state)
+        && first.state.nuclearCharge == second.state.nuclearCharge
+        && distinct
+        && finiteCoefficients
+        && std::abs(coefficientNorm - 1.0) < 1e-12;
+}
+
+Superposition equalSuperposition(const ComplexState& first,
+                                 const ComplexState& second)
+{
+    constexpr double inverseRootTwo = 0.70710678118654752440;
+    Superposition state{
+        std::array<StateTerm, 2>{
+            StateTerm{first, {inverseRootTwo, 0.0}},
+            StateTerm{second, {inverseRootTwo, 0.0}},
+        }
+    };
+    if (!isValidSuperposition(state)) {
+        throw std::invalid_argument("invalid superposition states");
+    }
+    return state;
+}
+
+std::complex<double> wavefunction(PositionAu position,
+                                  const Superposition& state,
+                                  double timeAu)
+{
+    std::complex<double> amplitude{0.0, 0.0};
+    for (const auto& term : state.terms) {
+        const auto timePhase = std::polar(
+            1.0, -energyHartree(term.state) * timeAu);
+        amplitude += term.coefficient
+            * wavefunction(position, term.state)
+            * timePhase;
+    }
+    return amplitude;
+}
+
+double probabilityDensity(PositionAu position,
+                          const Superposition& state,
+                          double timeAu)
+{
+    return std::norm(wavefunction(position, state, timeAu));
 }
 
 } // namespace quantum

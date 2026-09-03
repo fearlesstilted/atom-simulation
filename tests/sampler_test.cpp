@@ -27,8 +27,8 @@ double radius(quantum::PositionAu position)
 int main()
 {
     const sampling::SamplerConfig config{2000, 2000, 1234, 0.60, 0.35};
-    sampling::Sampler first({1, 0, 0, 1}, config);
-    sampling::Sampler second({1, 0, 0, 1}, config);
+    sampling::Sampler first(quantum::ComplexState{1, 0, 0, 1}, config);
+    sampling::Sampler second(quantum::ComplexState{1, 0, 0, 1}, config);
 
     check(first.walkers().size() == config.walkerCount,
           "sampler creates requested walker count");
@@ -71,8 +71,8 @@ int main()
 
     const sampling::SamplerConfig flowConfig{
         1000, 1000, 777, 1e-8, 1.0};
-    sampling::Sampler positiveFlow({2, 1, 1, 1}, flowConfig);
-    sampling::Sampler negativeFlow({2, 1, -1, 1}, flowConfig);
+    sampling::Sampler positiveFlow(quantum::ComplexState{2, 1, 1, 1}, flowConfig);
+    sampling::Sampler negativeFlow(quantum::ComplexState{2, 1, -1, 1}, flowConfig);
     const auto beforeFlow = positiveFlow.walkers();
     positiveFlow.advance();
     negativeFlow.advance();
@@ -92,6 +92,16 @@ int main()
     }
     check(positiveTurn > 0.0, "positive m flows counterclockwise");
     check(negativeTurn < 0.0, "negative m reverses probability flow");
+
+    const auto superposition = quantum::equalSuperposition(
+        {1, 0, 0, 1}, {2, 1, 0, 1});
+    sampling::Sampler evolving(superposition, config);
+    const double phaseBefore = evolving.walkers().front().phase;
+    evolving.setTime(8.0);
+    evolving.advance();
+    check(std::isfinite(evolving.walkers().front().phase)
+              && std::abs(evolving.walkers().front().phase - phaseBefore) > 1e-6,
+          "superposition phase evolves with time");
 
     return failures == 0 ? 0 : 1;
 }

@@ -1,5 +1,6 @@
 #include "quantum.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <complex>
@@ -73,6 +74,41 @@ IntegralResult integrate(const quantum::ComplexState& state)
     return {normalization, radiusMoment / normalization};
 }
 
+double integrateSuperposition(const quantum::Superposition& state,
+                              double timeAu)
+{
+    constexpr double pi = 3.14159265358979323846;
+    constexpr int radialBins = 240;
+    constexpr int cosineBins = 40;
+    constexpr int azimuthBins = 48;
+    const int maximumN = std::max(state.terms[0].state.n,
+                                  state.terms[1].state.n);
+    const double dr = 8.0 * maximumN * maximumN / radialBins;
+    const double dCosTheta = 2.0 / cosineBins;
+    const double dPhi = 2.0 * pi / azimuthBins;
+    double normalization = 0.0;
+
+    for (int ir = 0; ir < radialBins; ++ir) {
+        const double r = (ir + 0.5) * dr;
+        for (int it = 0; it < cosineBins; ++it) {
+            const double cosTheta = -1.0 + (it + 0.5) * dCosTheta;
+            const double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+            for (int ip = 0; ip < azimuthBins; ++ip) {
+                const double phi = (ip + 0.5) * dPhi;
+                const quantum::PositionAu position{
+                    r * sinTheta * std::cos(phi),
+                    r * sinTheta * std::sin(phi),
+                    r * cosTheta,
+                };
+                normalization += quantum::probabilityDensity(
+                    position, state, timeAu) * r * r
+                    * dr * dCosTheta * dPhi;
+            }
+        }
+    }
+    return normalization;
+}
+
 } // namespace
 
 int main()
@@ -142,6 +178,29 @@ int main()
         {0, 0, 2}, {3, 2, 1, 1});
     check(std::isfinite(axisFlow.x) && std::isfinite(axisFlow.y),
           "current remains finite on axis");
+
+    checkNear(quantum::energyHartree({1, 0, 0, 1}), -0.5, 1e-12,
+              "hydrogen 1s energy");
+    checkNear(quantum::energyHartree({2, 0, 0, 1}), -0.125, 1e-12,
+              "hydrogen n2 energy");
+
+    const auto superposition = quantum::equalSuperposition(
+        {1, 0, 0, 1}, {2, 1, 0, 1});
+    check(quantum::isValidSuperposition(superposition),
+          "equal superposition is valid");
+    checkNear(integrateSuperposition(superposition, 0.0),
+              1.0, 0.025, "superposition normalized at t0");
+    const double halfBeat = pi
+        / std::abs(quantum::energyHartree({2, 1, 0, 1})
+                   - quantum::energyHartree({1, 0, 0, 1}));
+    checkNear(integrateSuperposition(superposition, halfBeat),
+              1.0, 0.025, "superposition stays normalized over time");
+    const double densityNow = quantum::probabilityDensity(
+        {0, 0, 1}, superposition, 0.0);
+    const double densityLater = quantum::probabilityDensity(
+        {0, 0, 1}, superposition, halfBeat);
+    check(std::abs(densityNow - densityLater) > 0.01,
+          "interference changes density over time");
 
     return failures == 0 ? 0 : 1;
 }

@@ -2,6 +2,7 @@
 #include "raymath.h"
 #include "quantum.hpp"
 #include "sampler.hpp"
+#include "state_sequence.hpp"
 
 #include <algorithm>
 #include <array>
@@ -231,7 +232,7 @@ int main()
 {
     constexpr int screenWidth = 1600;
     constexpr int screenHeight = 900;
-    quantum::ComplexState orbital{4, 2, 2, 1};
+    quantum::ComplexState orbital{1, 0, 0, 1};
 
     quantum::ComplexState controlTest{1, 0, 0, 1};
     changeOrbital(controlTest, 'n', -1);
@@ -271,6 +272,9 @@ int main()
     float cameraDistance = loadZoom(settingsPath);
     bool autoRotate = false;
     float autoRotationSpeed = 0.12f;
+    bool demoMode = true;
+    float demoElapsed = 0.0f;
+    constexpr float demoInterval = 6.0f;
 
     while (!WindowShouldClose()) {
         const float deltaTime = GetFrameTime();
@@ -283,6 +287,10 @@ int main()
             } else {
                 autoRotate = !autoRotate;
             }
+        }
+        if (IsKeyPressed(KEY_D)) {
+            demoMode = !demoMode;
+            demoElapsed = 0.0f;
         }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
@@ -308,14 +316,26 @@ int main()
         if (IsKeyPressed(KEY_N)) {
             changeOrbital(orbital, 'n', direction);
             orbitalChanged = true;
+            demoMode = false;
         }
         if (IsKeyPressed(KEY_L)) {
             changeOrbital(orbital, 'l', direction);
             orbitalChanged = true;
+            demoMode = false;
         }
         if (IsKeyPressed(KEY_M)) {
             changeOrbital(orbital, 'm', direction);
             orbitalChanged = true;
+            demoMode = false;
+        }
+
+        if (demoMode) {
+            demoElapsed += deltaTime;
+            if (demoElapsed >= demoInterval) {
+                orbital = sequence::nextState(orbital);
+                demoElapsed = 0.0f;
+                orbitalChanged = true;
+            }
         }
 
         if (orbitalChanged) {
@@ -375,10 +395,11 @@ int main()
 
         DrawText(
             TextFormat(
-                "n=%d  l=%d  m=%d  rotation=%s  MALA=%.1f%%",
+                "n=%d  l=%d  m=%d  mode=%s  rotation=%s  MALA=%.1f%%",
                 orbital.n,
                 orbital.l,
                 orbital.m,
+                demoMode ? "demo" : "manual",
                 autoRotate ? "auto" : "manual",
                 sampler.diagnostics().acceptanceRate() * 100.0
             ),
@@ -390,6 +411,8 @@ int main()
         DrawText("moving points: probability samples, not electron paths",
                  16, 34, 10, DARKGRAY);
         DrawText("color: complex phase arg(psi)", 16, 52, 10, DARKGRAY);
+        DrawText("D demo  |  N/L/M state  |  shift reverses",
+                 16, 70, 10, DARKGRAY);
         DrawFPS(screenWidth - 100, 22);
 
         EndDrawing();

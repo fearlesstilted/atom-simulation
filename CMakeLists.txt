@@ -16,8 +16,13 @@ target_include_directories(sampler PUBLIC src)
 target_link_libraries(sampler PUBLIC quantum)
 target_compile_options(sampler PRIVATE -Wall -Wextra -pedantic)
 
+add_library(state_sequence src/state_sequence.cpp)
+target_include_directories(state_sequence PUBLIC src)
+target_link_libraries(state_sequence PUBLIC quantum)
+target_compile_options(state_sequence PRIVATE -Wall -Wextra -pedantic)
+
 add_executable(atom src/main.cpp)
-target_link_libraries(atom PRIVATE raylib quantum sampler)
+target_link_libraries(atom PRIVATE raylib quantum sampler state_sequence)
 target_compile_options(atom PRIVATE -Wall -Wextra -pedantic)
 
 include(CTest)
@@ -29,3 +34,7 @@ add_test(NAME quantum_test COMMAND quantum_test)
 add_executable(sampler_test tests/sampler_test.cpp)
 target_link_libraries(sampler_test PRIVATE sampler)
 add_test(NAME sampler_test COMMAND sampler_test)
+
+add_executable(state_sequence_test tests/state_sequence_test.cpp)
+target_link_libraries(state_sequence_test PRIVATE state_sequence)
+add_test(NAME state_sequence_test COMMAND state_sequence_test)

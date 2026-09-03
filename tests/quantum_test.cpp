@@ -121,5 +121,27 @@ int main()
                   "mean radius matches hydrogenic expectation");
     }
 
+    const auto still = quantum::probabilityCurrentVelocity(
+        {1, 2, 3}, {3, 2, 0, 1});
+    checkNear(still.x, 0.0, 1e-12, "m0 current has no x velocity");
+    checkNear(still.y, 0.0, 1e-12, "m0 current has no y velocity");
+    checkNear(still.z, 0.0, 1e-12, "m0 current has no z velocity");
+
+    const auto positiveFlow = quantum::probabilityCurrentVelocity(
+        {1, 2, 3}, {3, 2, 1, 1});
+    const auto negativeFlow = quantum::probabilityCurrentVelocity(
+        {1, 2, 3}, {3, 2, -1, 1});
+    checkNear(positiveFlow.x * 1.0 + positiveFlow.y * 2.0,
+              0.0, 1e-12, "probability flow is tangential");
+    checkNear(negativeFlow.x, -positiveFlow.x, 1e-12,
+              "negative m reverses x flow");
+    checkNear(negativeFlow.y, -positiveFlow.y, 1e-12,
+              "negative m reverses y flow");
+
+    const auto axisFlow = quantum::probabilityCurrentVelocity(
+        {0, 0, 2}, {3, 2, 1, 1});
+    check(std::isfinite(axisFlow.x) && std::isfinite(axisFlow.y),
+          "current remains finite on axis");
+
     return failures == 0 ? 0 : 1;
 }

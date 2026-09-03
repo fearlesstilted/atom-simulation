@@ -22,5 +22,7 @@ std::complex<double> wavefunction(PositionAu position,
                                   const ComplexState& state);
 double probabilityDensity(PositionAu position,
                           const ComplexState& state);
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const ComplexState& state);
 
 } // namespace quantum

@@ -24,10 +24,10 @@
 
 **Files:** Modify `src/quantum.hpp`, `src/quantum.cpp`, and `tests/quantum_test.cpp`.
 
-- [ ] Add tests proving zero current for `m=0`, tangential flow, and reversal when `m` changes sign.
-- [ ] Add `probabilityCurrentVelocity(PositionAu, const ComplexState&)` in atomic units.
-- [ ] Build and run CTest.
-- [ ] Commit the verified quantum change.
+- [x] Add tests proving zero current for `m=0`, tangential flow, and reversal when `m` changes sign.
+- [x] Add `probabilityCurrentVelocity(PositionAu, const ComplexState&)` in atomic units.
+- [x] Build and run CTest.
+- [x] Commit the verified quantum change.
 
 ### Task 2: MALA Sampler
 

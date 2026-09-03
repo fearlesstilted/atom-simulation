@@ -67,4 +67,17 @@ double probabilityDensity(PositionAu position, const ComplexState& state)
     return std::norm(wavefunction(position, state));
 }
 
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const ComplexState& state)
+{
+    const double cylindricalRadiusSquared =
+        position.x * position.x + position.y * position.y;
+    if (state.m == 0 || cylindricalRadiusSquared < 1e-20) {
+        return {0.0, 0.0, 0.0};
+    }
+
+    const double scale = state.m / cylindricalRadiusSquared;
+    return {-scale * position.y, scale * position.x, 0.0};
+}
+
 } // namespace quantum

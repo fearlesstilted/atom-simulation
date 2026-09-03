@@ -182,7 +182,7 @@ double probabilityDensity(PositionAu position,
                           const ComplexState& state);
 ```
 
-- [ ] **Step 1: Add failing closed-form checks**
+- [x] **Step 1: Add failing closed-form checks**
 
 ```cpp
 constexpr double pi = 3.14159265358979323846;
@@ -202,7 +202,7 @@ checkNearComplex(yNegative, -std::conj(yPositive), 1e-12,
 
 Run the test. Expected: compilation fails because both functions are missing.
 
-- [ ] **Step 2: Implement the radial amplitude**
+- [x] **Step 2: Implement the radial amplitude**
 
 Use `rho = 2 Z r / n`, `std::assoc_laguerre`, and `std::tgamma`:
 
@@ -217,7 +217,7 @@ const double radial = norm * std::exp(-rho / 2.0)
     * std::assoc_laguerre(n - l - 1, 2 * l + 1, rho);
 ```
 
-- [ ] **Step 3: Implement the complex angular amplitude**
+- [x] **Step 3: Implement the complex angular amplitude**
 
 Use the normalized associated Legendre function and preserve `exp(i*m*phi)`:
 
@@ -247,7 +247,7 @@ const auto angular = m >= 0
 Return `radial * angular`; derive density only with
 `std::norm(wavefunction)`.
 
-- [ ] **Step 4: Run the closed-form checks**
+- [x] **Step 4: Run the closed-form checks**
 
 Run `cmake --build build && ctest --test-dir build --output-on-failure`.
 Expected: all checks pass with no raylib linkage in `quantum_test`.

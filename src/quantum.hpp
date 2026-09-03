@@ -1,5 +1,7 @@
 #pragma once
 
+#include <complex>
+
 namespace quantum {
 
 struct PositionAu {
@@ -16,5 +18,9 @@ struct ComplexState {
 };
 
 bool isValid(const ComplexState& state);
+std::complex<double> wavefunction(PositionAu position,
+                                  const ComplexState& state);
+double probabilityDensity(PositionAu position,
+                          const ComplexState& state);
 
 } // namespace quantum

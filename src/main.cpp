@@ -131,6 +131,16 @@ void updateMorph(std::vector<Particle>& particles, float progress)
     }
 }
 
+void updateMorphTargets(std::vector<Particle>& particles,
+                        const std::vector<sampling::Walker>& walkers)
+{
+    assert(particles.size() == walkers.size());
+    for (std::size_t i = 0; i < particles.size(); ++i) {
+        particles[i].target = displayPosition(walkers[i].position);
+        particles[i].targetPhase = walkers[i].phase;
+    }
+}
+
 void retargetParticles(std::vector<Particle>& particles,
                        const std::vector<sampling::Walker>& walkers)
 {
@@ -409,16 +419,18 @@ int main()
             morphElapsed = 0.0f;
         }
 
+        if (superpositionMode) {
+            constexpr double quantumTimePerSecond = 4.0;
+            quantumTimeAu += quantumTimePerSecond * deltaTime;
+            sampler.setTime(quantumTimeAu);
+        }
+        sampler.advance();
+
         if (morphElapsed < morphDuration) {
             morphElapsed = std::min(morphElapsed + deltaTime, morphDuration);
+            updateMorphTargets(particles, sampler.walkers());
             updateMorph(particles, morphElapsed / morphDuration);
         } else {
-            if (superpositionMode) {
-                constexpr double quantumTimePerSecond = 4.0;
-                quantumTimeAu += quantumTimePerSecond * deltaTime;
-                sampler.setTime(quantumTimeAu);
-            }
-            sampler.advance();
             retargetParticles(particles, sampler.walkers());
             updateParticles(particles, deltaTime);
         }

@@ -1,5 +1,8 @@
 # Atomic Orbital Lab
 
+[![CI](https://github.com/fearlesstilted/atom-simulation/actions/workflows/ci.yml/badge.svg)](https://github.com/fearlesstilted/atom-simulation/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Interactive C++/raylib visualizer for hydrogenic wavefunctions. It evaluates
 the analytical state
 
@@ -20,6 +23,7 @@ external fields, and electron-electron interactions.
 ## Build
 
 Requires a C++17 compiler, CMake 3.20+, and raylib 5.5.
+If raylib is not installed, CMake fetches the pinned 5.5 source automatically.
 
 ```bash
 cmake -S . -B build

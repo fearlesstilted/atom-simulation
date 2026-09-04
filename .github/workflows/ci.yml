@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install raylib build dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libasound2-dev libx11-dev libxrandr-dev libxi-dev
+          libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev
+          libxinerama-dev libwayland-dev libxkbcommon-dev
+      - name: Configure
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DATOM_SANITIZE=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

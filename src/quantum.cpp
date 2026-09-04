@@ -4,8 +4,6 @@
 #include <cmath>
 #include <stdexcept>
 
-#include <cstdlib>
-
 namespace quantum {
 namespace {
 

@@ -35,11 +35,31 @@ struct Particle {
 constexpr std::size_t phaseBinCount = 12;
 using PhaseBatches = std::array<std::vector<Matrix>, phaseBinCount>;
 
+constexpr std::array realOrbitals{
+    quantum::RealOrbital::Px,
+    quantum::RealOrbital::Py,
+    quantum::RealOrbital::Pz,
+    quantum::RealOrbital::Dxy,
+    quantum::RealOrbital::Dxz,
+    quantum::RealOrbital::Dyz,
+    quantum::RealOrbital::Dz2,
+    quantum::RealOrbital::Dx2Y2,
+};
+
 int wrap(int value, int minimum, int maximum)
 {
     if (value > maximum) return minimum;
     if (value < minimum) return maximum;
     return value;
+}
+
+quantum::RealOrbital nextRealOrbital(quantum::RealOrbital current,
+                                     int direction)
+{
+    const auto found = std::find(realOrbitals.begin(), realOrbitals.end(), current);
+    const int index = static_cast<int>(found - realOrbitals.begin());
+    return realOrbitals[wrap(index + direction, 0,
+                             static_cast<int>(realOrbitals.size()) - 1)];
 }
 
 void changeOrbital(quantum::ComplexState& orbital, char quantumNumber,
@@ -116,7 +136,8 @@ void beginMorph(std::vector<Particle>& particles,
 float smootherStep(float progress)
 {
     const float t = std::clamp(progress, 0.0f, 1.0f);
-    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+    const float smooth = t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+    return 0.12f * t + 0.88f * smooth;
 }
 
 void updateMorph(std::vector<Particle>& particles, float progress)
@@ -273,6 +294,19 @@ int main()
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
     SetTargetFPS(60);
+    Font hudFont = GetFontDefault();
+    bool unloadHudFont = false;
+    constexpr std::array fontPaths{
+        "/usr/share/fonts/google-noto-vf/NotoSans[wght].ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    };
+    for (const char* path : fontPaths) {
+        if (!FileExists(path)) continue;
+        hudFont = LoadFontEx(path, 18, nullptr, 0);
+        unloadHudFont = true;
+        break;
+    }
     const std::string settingsPath =
         std::string(GetApplicationDirectory()) + "atom.settings";
     const settings::AppState saved = settings::load(settingsPath);
@@ -280,8 +314,12 @@ int main()
     quantum::ComplexState secondaryOrbital = sequence::nextState(orbital);
     bool superpositionMode = saved.superpositionMode;
     double quantumTimeAu = saved.quantumTimeAu;
+    bool realMode = saved.realMode;
+    quantum::RealOrbital realOrbital = saved.realOrbital;
     sampling::Sampler sampler(orbital);
-    if (superpositionMode) {
+    if (realMode) {
+        sampler.reset({orbital.n, realOrbital, orbital.nuclearCharge});
+    } else if (superpositionMode) {
         sampler.reset(quantum::equalSuperposition(orbital, secondaryOrbital));
         sampler.setTime(quantumTimeAu);
     }
@@ -337,6 +375,7 @@ int main()
         }
         const bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT)
             || IsKeyDown(KEY_RIGHT_SHIFT);
+        bool orbitalChanged = false;
 
         if (IsKeyPressed(KEY_R)) {
             if (shiftHeld) {
@@ -348,12 +387,39 @@ int main()
         if (IsKeyPressed(KEY_D)) {
             demoMode = !demoMode;
             demoElapsed = 0.0f;
+            if (demoMode && realMode) {
+                realMode = false;
+                superpositionMode = false;
+                orbitalChanged = true;
+            }
         }
-        bool orbitalChanged = false;
         if (IsKeyPressed(KEY_S)) {
             superpositionMode = !superpositionMode;
+            realMode = false;
             quantumTimeAu = 0.0;
             demoMode = false;
+            orbitalChanged = true;
+        }
+        if (IsKeyPressed(KEY_B)) {
+            realMode = !realMode;
+            superpositionMode = false;
+            demoMode = false;
+            while (realMode && !quantum::isValid({
+                    orbital.n, realOrbital, orbital.nuclearCharge})) {
+                orbital.n = wrap(orbital.n + 1, 1, 5);
+            }
+            orbitalChanged = true;
+        }
+        if (IsKeyPressed(KEY_O)) {
+            realMode = true;
+            superpositionMode = false;
+            demoMode = false;
+            realOrbital = nextRealOrbital(
+                realOrbital, shiftHeld ? -1 : 1);
+            while (!quantum::isValid({
+                    orbital.n, realOrbital, orbital.nuclearCharge})) {
+                orbital.n = wrap(orbital.n + 1, 1, 5);
+            }
             orbitalChanged = true;
         }
 
@@ -376,16 +442,25 @@ int main()
 
         const int direction = shiftHeld ? -1 : 1;
         if (IsKeyPressed(KEY_N)) {
-            changeOrbital(orbital, 'n', direction);
+            if (realMode) {
+                do {
+                    orbital.n = wrap(orbital.n + direction, 1, 5);
+                } while (!quantum::isValid({
+                    orbital.n, realOrbital, orbital.nuclearCharge}));
+            } else {
+                changeOrbital(orbital, 'n', direction);
+            }
             orbitalChanged = true;
             demoMode = false;
         }
         if (IsKeyPressed(KEY_L)) {
+            realMode = false;
             changeOrbital(orbital, 'l', direction);
             orbitalChanged = true;
             demoMode = false;
         }
         if (IsKeyPressed(KEY_M)) {
+            realMode = false;
             changeOrbital(orbital, 'm', direction);
             orbitalChanged = true;
             demoMode = false;
@@ -409,7 +484,10 @@ int main()
         if (orbitalChanged) {
             assert(quantum::isValid(orbital));
             secondaryOrbital = sequence::nextState(orbital);
-            if (superpositionMode) {
+            if (realMode) {
+                sampler.reset({
+                    orbital.n, realOrbital, orbital.nuclearCharge});
+            } else if (superpositionMode) {
                 sampler.reset(quantum::equalSuperposition(
                     orbital, secondaryOrbital));
             } else {
@@ -480,28 +558,31 @@ int main()
         DrawSphere({0.0f, 0.0f, 0.0f}, 0.12f, GOLD);
         EndMode3D();
 
-        DrawText(
-            TextFormat(
-                "n=%d l=%d m=%d  quantum=%s  mode=%s  rotation=%s  MALA=%.1f%%",
-                orbital.n,
-                orbital.l,
-                orbital.m,
-                superpositionMode ? "superposition" : "eigenstate",
-                demoMode ? "demo" : "manual",
-                autoRotate ? "auto" : "manual",
-                sampler.diagnostics().acceptanceRate() * 100.0
-            ),
-            16,
-            16,
-            10,
-            DARKGRAY
-        );
-        DrawText("moving points: probability samples, not electron paths",
-                 16, 34, 10, DARKGRAY);
-        DrawText("color: complex phase arg(psi)", 16, 52, 10, DARKGRAY);
-        DrawText("D demo  |  S superposition  |  N/L/M state  |  shift reverses",
-                 16, 70, 10, DARKGRAY);
-        DrawFPS(screenWidth - 100, 22);
+        std::string stateLabel;
+        double energy = quantum::energyHartree(orbital);
+        if (realMode) {
+            stateLabel = std::to_string(orbital.n) + quantum::name(realOrbital);
+        } else if (superpositionMode) {
+            stateLabel = "|" + std::to_string(orbital.n) + ","
+                + std::to_string(orbital.l) + ","
+                + std::to_string(orbital.m) + "> + |"
+                + std::to_string(secondaryOrbital.n) + ","
+                + std::to_string(secondaryOrbital.l) + ","
+                + std::to_string(secondaryOrbital.m) + ">";
+            energy = 0.5 * (energy
+                + quantum::energyHartree(secondaryOrbital));
+        } else {
+            stateLabel = "|" + std::to_string(orbital.n) + ","
+                + std::to_string(orbital.l) + ","
+                + std::to_string(orbital.m) + ">";
+        }
+        DrawTextEx(hudFont, TextFormat("%s   E %.3f Ha / %.2f eV",
+                       stateLabel.c_str(), energy, energy * 27.211386),
+                   {18.0f, 16.0f}, 16.0f, 0.0f, {190, 198, 210, 220});
+        DrawTextEx(hudFont, TextFormat("30,000 samples   MALA %.0f%%   %d fps",
+                       sampler.diagnostics().acceptanceRate() * 100.0,
+                       GetFPS()),
+                   {18.0f, 38.0f}, 14.0f, 0.0f, {115, 124, 140, 210});
 
         EndDrawing();
     }
@@ -516,9 +597,12 @@ int main()
         autoRotationSpeed,
         superpositionMode,
         quantumTimeAu,
+        realMode,
+        realOrbital,
     });
     UnloadMesh(sphere);
     UnloadMaterial(material);
+    if (unloadHudFont) UnloadFont(hudFont);
     CloseWindow();
     return 0;
 }

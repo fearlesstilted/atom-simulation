@@ -11,7 +11,7 @@ int main()
         / "atom-settings-test.txt";
     const settings::AppState expected{
         {4, 2, -1, 1}, 31.5f, 1.2f, -0.4f, false, true, -0.12f,
-        true, 7.25};
+        false, 7.25, true, quantum::RealOrbital::Dx2Y2};
 
     if (!settings::save(path, expected)) {
         std::cerr << "FAIL: settings save\n";
@@ -28,7 +28,9 @@ int main()
         || actual.autoRotate != expected.autoRotate
         || actual.autoRotationSpeed != expected.autoRotationSpeed
         || actual.superpositionMode != expected.superpositionMode
-        || std::abs(actual.quantumTimeAu - expected.quantumTimeAu) > 1e-9) {
+        || std::abs(actual.quantumTimeAu - expected.quantumTimeAu) > 1e-9
+        || actual.realMode != expected.realMode
+        || actual.realOrbital != expected.realOrbital) {
         std::cerr << "FAIL: settings round trip\n";
         return 1;
     }
@@ -40,6 +42,15 @@ int main()
         || legacy.demoMode || !legacy.autoRotate
         || legacy.superpositionMode || legacy.quantumTimeAu != 0.0) {
         std::cerr << "FAIL: legacy settings load\n";
+        return 1;
+    }
+
+    std::ofstream(path)
+        << "ATOM_SETTINGS 2 3 2 1 1 18 0.5 -0.25 0 1 0.2 1 4.5\n";
+    const auto versionTwo = settings::load(path);
+    if (!versionTwo.superpositionMode || versionTwo.quantumTimeAu != 4.5
+        || versionTwo.realMode) {
+        std::cerr << "FAIL: version two settings load\n";
         return 1;
     }
 

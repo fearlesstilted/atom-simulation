@@ -16,6 +16,8 @@ AppState load(const std::filesystem::path& path)
     int demoMode = 0;
     int autoRotate = 0;
     int superpositionMode = 0;
+    int realMode = 0;
+    int realOrbital = 0;
 
     if (!(input >> magic >> version
           >> state.orbital.n >> state.orbital.l >> state.orbital.m
@@ -23,9 +25,10 @@ AppState load(const std::filesystem::path& path)
           >> state.cameraDistance >> state.cameraYaw >> state.cameraPitch
           >> demoMode >> autoRotate >> state.autoRotationSpeed)
         || magic != "ATOM_SETTINGS"
-        || (version != 1 && version != 2)
-        || (version == 2
+        || (version < 1 || version > 3)
+        || (version >= 2
             && !(input >> superpositionMode >> state.quantumTimeAu))
+        || (version >= 3 && !(input >> realMode >> realOrbital))
         || !quantum::isValid(state.orbital)
         || state.orbital.n > 5
         || !std::isfinite(state.cameraDistance)
@@ -36,7 +39,9 @@ AppState load(const std::filesystem::path& path)
         || state.quantumTimeAu < 0.0
         || (demoMode != 0 && demoMode != 1)
         || (autoRotate != 0 && autoRotate != 1)
-        || (superpositionMode != 0 && superpositionMode != 1)) {
+        || (superpositionMode != 0 && superpositionMode != 1)
+        || (realMode != 0 && realMode != 1)
+        || realOrbital < 0 || realOrbital > 7) {
         return {};
     }
 
@@ -47,6 +52,13 @@ AppState load(const std::filesystem::path& path)
     state.demoMode = demoMode == 1;
     state.autoRotate = autoRotate == 1;
     state.superpositionMode = superpositionMode == 1;
+    state.realMode = realMode == 1;
+    state.realOrbital = static_cast<quantum::RealOrbital>(realOrbital);
+    if (state.realMode && !quantum::isValid({
+            state.orbital.n, state.realOrbital,
+            state.orbital.nuclearCharge})) {
+        return {};
+    }
     return state;
 }
 
@@ -56,7 +68,7 @@ bool save(const std::filesystem::path& path, const AppState& state)
     if (!output) return false;
 
     output << std::setprecision(9)
-           << "ATOM_SETTINGS 2 "
+           << "ATOM_SETTINGS 3 "
            << state.orbital.n << ' '
            << state.orbital.l << ' '
            << state.orbital.m << ' '
@@ -68,7 +80,9 @@ bool save(const std::filesystem::path& path, const AppState& state)
            << static_cast<int>(state.autoRotate) << ' '
            << state.autoRotationSpeed << ' '
            << static_cast<int>(state.superpositionMode) << ' '
-           << state.quantumTimeAu << '\n';
+           << state.quantumTimeAu << ' '
+           << static_cast<int>(state.realMode) << ' '
+           << static_cast<int>(state.realOrbital) << '\n';
     return output.good();
 }
 

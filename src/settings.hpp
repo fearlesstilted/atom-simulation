@@ -16,6 +16,8 @@ struct AppState {
     float autoRotationSpeed = 0.12f;
     bool superpositionMode = false;
     double quantumTimeAu = 0.0;
+    bool realMode = false;
+    quantum::RealOrbital realOrbital = quantum::RealOrbital::Px;
 };
 
 AppState load(const std::filesystem::path& path);

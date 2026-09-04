@@ -103,5 +103,12 @@ int main()
               && std::abs(evolving.walkers().front().phase - phaseBefore) > 1e-6,
           "superposition phase evolves with time");
 
+    sampling::Sampler realOrbital(
+        quantum::RealState{2, quantum::RealOrbital::Px, 1}, config);
+    realOrbital.advance();
+    check(std::isfinite(realOrbital.walkers().front().position.x)
+              && std::isfinite(realOrbital.walkers().front().phase),
+          "real orbital sampler remains finite");
+
     return failures == 0 ? 0 : 1;
 }

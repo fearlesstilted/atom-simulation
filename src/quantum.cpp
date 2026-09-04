@@ -7,6 +7,46 @@
 #include <cstdlib>
 
 namespace quantum {
+namespace {
+
+template <typename Wavefunction>
+PositionAu numericalCurrentVelocity(PositionAu position, double scale,
+                                    Wavefunction evaluate)
+{
+    const double delta = 1e-5 * std::max(1.0, scale);
+    const auto psi = evaluate(position);
+    const double density = std::norm(psi);
+    if (density < 1e-24) return {0.0, 0.0, 0.0};
+
+    const auto derivative = [&](PositionAu plus, PositionAu minus) {
+        return (evaluate(plus) - evaluate(minus)) / (2.0 * delta);
+    };
+    const auto dx = derivative(
+        {position.x + delta, position.y, position.z},
+        {position.x - delta, position.y, position.z});
+    const auto dy = derivative(
+        {position.x, position.y + delta, position.z},
+        {position.x, position.y - delta, position.z});
+    const auto dz = derivative(
+        {position.x, position.y, position.z + delta},
+        {position.x, position.y, position.z - delta});
+    const auto conjugate = std::conj(psi);
+    return {
+        std::imag(conjugate * dx) / density,
+        std::imag(conjugate * dy) / density,
+        std::imag(conjugate * dz) / density,
+    };
+}
+
+int angularMomentum(RealOrbital orbital)
+{
+    return orbital == RealOrbital::Px
+            || orbital == RealOrbital::Py
+            || orbital == RealOrbital::Pz
+        ? 1 : 2;
+}
+
+} // namespace
 
 bool isValid(const ComplexState& state)
 {
@@ -146,6 +186,88 @@ double probabilityDensity(PositionAu position,
                           double timeAu)
 {
     return std::norm(wavefunction(position, state, timeAu));
+}
+
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const Superposition& state,
+                                      double timeAu)
+{
+    double scale = 0.0;
+    for (const auto& term : state.terms) {
+        scale = std::max(scale,
+            static_cast<double>(term.state.n * term.state.n)
+            / term.state.nuclearCharge);
+    }
+    return numericalCurrentVelocity(position, scale, [&](PositionAu point) {
+        return wavefunction(point, state, timeAu);
+    });
+}
+
+bool isValid(const RealState& state)
+{
+    const int l = angularMomentum(state.orbital);
+    return state.n >= l + 1 && state.n <= 8
+        && state.nuclearCharge >= 1;
+}
+
+const char* name(RealOrbital orbital)
+{
+    switch (orbital) {
+    case RealOrbital::Px: return "p_x";
+    case RealOrbital::Py: return "p_y";
+    case RealOrbital::Pz: return "p_z";
+    case RealOrbital::Dxy: return "d_xy";
+    case RealOrbital::Dxz: return "d_xz";
+    case RealOrbital::Dyz: return "d_yz";
+    case RealOrbital::Dz2: return "d_z2";
+    case RealOrbital::Dx2Y2: return "d_x2-y2";
+    }
+    return "unknown";
+}
+
+std::complex<double> wavefunction(PositionAu position,
+                                  const RealState& state)
+{
+    constexpr double inverseRootTwo = 0.70710678118654752440;
+    const int l = angularMomentum(state.orbital);
+    const auto basis = [&](int m) {
+        return wavefunction(position, {
+            state.n, l, m, state.nuclearCharge});
+    };
+
+    switch (state.orbital) {
+    case RealOrbital::Pz:
+    case RealOrbital::Dz2:
+        return basis(0);
+    case RealOrbital::Px:
+    case RealOrbital::Dxz:
+        return inverseRootTwo * (basis(-1) - basis(1));
+    case RealOrbital::Py:
+    case RealOrbital::Dyz:
+        return std::complex<double>(0.0, inverseRootTwo)
+            * (basis(-1) + basis(1));
+    case RealOrbital::Dxy:
+        return std::complex<double>(0.0, inverseRootTwo)
+            * (basis(-2) - basis(2));
+    case RealOrbital::Dx2Y2:
+        return inverseRootTwo * (basis(-2) + basis(2));
+    }
+    return {};
+}
+
+double probabilityDensity(PositionAu position, const RealState& state)
+{
+    return std::norm(wavefunction(position, state));
+}
+
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const RealState& state)
+{
+    const double scale = static_cast<double>(state.n * state.n)
+        / state.nuclearCharge;
+    return numericalCurrentVelocity(position, scale, [&](PositionAu point) {
+        return wavefunction(point, state);
+    });
 }
 
 } // namespace quantum

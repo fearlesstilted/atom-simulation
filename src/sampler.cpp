@@ -53,6 +53,19 @@ Sampler::Sampler(const quantum::Superposition& state, SamplerConfig config)
     initializeWalkers();
 }
 
+Sampler::Sampler(const quantum::RealState& state, SamplerConfig config)
+    : state_(state), config_(config), random_(config.seed)
+{
+    if (!quantum::isValid(state)
+        || config.walkerCount == 0
+        || config.updatesPerAdvance == 0
+        || config.stepScale <= 0.0
+        || config.flowTimeScale < 0.0) {
+        throw std::invalid_argument("invalid sampler configuration");
+    }
+    initializeWalkers();
+}
+
 void Sampler::reset(const quantum::ComplexState& state)
 {
     if (!quantum::isValid(state)) {
@@ -78,6 +91,19 @@ void Sampler::reset(const quantum::Superposition& state)
     initializeWalkers();
 }
 
+void Sampler::reset(const quantum::RealState& state)
+{
+    if (!quantum::isValid(state)) {
+        throw std::invalid_argument("invalid real orbital");
+    }
+    state_ = state;
+    timeAu_ = 0.0;
+    random_.seed(config_.seed);
+    nextWalker_ = 0;
+    diagnostics_ = {};
+    initializeWalkers();
+}
+
 void Sampler::setTime(double timeAu)
 {
     if (!std::isfinite(timeAu)) {
@@ -91,7 +117,8 @@ double Sampler::densityAt(quantum::PositionAu position) const
     constexpr double floor = 1e-300;
     const double density = std::visit([&](const auto& state) {
         using State = std::decay_t<decltype(state)>;
-        if constexpr (std::is_same_v<State, quantum::ComplexState>) {
+        if constexpr (std::is_same_v<State, quantum::ComplexState>
+                      || std::is_same_v<State, quantum::RealState>) {
             return quantum::probabilityDensity(position, state);
         } else {
             return quantum::probabilityDensity(position, state, timeAu_);
@@ -104,7 +131,8 @@ double Sampler::phaseAt(quantum::PositionAu position) const
 {
     return std::arg(std::visit([&](const auto& state) {
         using State = std::decay_t<decltype(state)>;
-        if constexpr (std::is_same_v<State, quantum::ComplexState>) {
+        if constexpr (std::is_same_v<State, quantum::ComplexState>
+                      || std::is_same_v<State, quantum::RealState>) {
             return quantum::wavefunction(position, state);
         } else {
             return quantum::wavefunction(position, state, timeAu_);
@@ -117,6 +145,9 @@ double Sampler::spatialScale() const
     return std::visit([](const auto& state) {
         using State = std::decay_t<decltype(state)>;
         if constexpr (std::is_same_v<State, quantum::ComplexState>) {
+            return static_cast<double>(state.n * state.n)
+                / state.nuclearCharge;
+        } else if constexpr (std::is_same_v<State, quantum::RealState>) {
             return static_cast<double>(state.n * state.n)
                 / state.nuclearCharge;
         } else {
@@ -211,25 +242,57 @@ void Sampler::advanceWalker(Walker& walker)
 void Sampler::applyProbabilityFlow(Walker& walker) const
 {
     const auto* state = std::get_if<quantum::ComplexState>(&state_);
-    if (state == nullptr) return;
-    const double cylindricalRadiusSquared =
-        walker.position.x * walker.position.x
-        + walker.position.y * walker.position.y;
-    if (state->m == 0 || cylindricalRadiusSquared < 1e-20) return;
+    if (state != nullptr) {
+        const double cylindricalRadiusSquared =
+            walker.position.x * walker.position.x
+            + walker.position.y * walker.position.y;
+        if (state->m == 0 || cylindricalRadiusSquared < 1e-20) return;
 
-    const auto velocity = quantum::probabilityCurrentVelocity(
-        walker.position, *state);
-    const double angularVelocity =
-        (walker.position.x * velocity.y - walker.position.y * velocity.x)
-        / cylindricalRadiusSquared;
-    const double angle = std::clamp(
-        config_.flowTimeScale * angularVelocity, -0.15, 0.15);
-    const double cosine = std::cos(angle);
-    const double sine = std::sin(angle);
-    const double x = walker.position.x;
-    const double y = walker.position.y;
-    walker.position.x = cosine * x - sine * y;
-    walker.position.y = sine * x + cosine * y;
+        const auto velocity = quantum::probabilityCurrentVelocity(
+            walker.position, *state);
+        const double angularVelocity =
+            (walker.position.x * velocity.y - walker.position.y * velocity.x)
+            / cylindricalRadiusSquared;
+        const double angle = std::clamp(
+            config_.flowTimeScale * angularVelocity, -0.15, 0.15);
+        const double cosine = std::cos(angle);
+        const double sine = std::sin(angle);
+        const double x = walker.position.x;
+        const double y = walker.position.y;
+        walker.position.x = cosine * x - sine * y;
+        walker.position.y = sine * x + cosine * y;
+        walker.phase = phaseAt(walker.position);
+        return;
+    }
+
+    const auto velocity = std::visit([&](const auto& current) {
+        using State = std::decay_t<decltype(current)>;
+        if constexpr (std::is_same_v<State, quantum::Superposition>) {
+            return quantum::probabilityCurrentVelocity(
+                walker.position, current, timeAu_);
+        } else if constexpr (std::is_same_v<State, quantum::RealState>) {
+            return quantum::probabilityCurrentVelocity(
+                walker.position, current);
+        } else {
+            return quantum::PositionAu{};
+        }
+    }, state_);
+    quantum::PositionAu displacement{
+        velocity.x * config_.flowTimeScale,
+        velocity.y * config_.flowTimeScale,
+        velocity.z * config_.flowTimeScale,
+    };
+    const double distance = std::sqrt(lengthSquared(displacement));
+    const double maximum = 0.15 * std::sqrt(spatialScale());
+    if (distance > maximum) {
+        const double factor = maximum / distance;
+        displacement.x *= factor;
+        displacement.y *= factor;
+        displacement.z *= factor;
+    }
+    walker.position.x += displacement.x;
+    walker.position.y += displacement.y;
+    walker.position.z += displacement.z;
     walker.phase = phaseAt(walker.position);
 }
 

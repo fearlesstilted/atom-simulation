@@ -27,6 +27,23 @@ struct Superposition {
     std::array<StateTerm, 2> terms;
 };
 
+enum class RealOrbital {
+    Px,
+    Py,
+    Pz,
+    Dxy,
+    Dxz,
+    Dyz,
+    Dz2,
+    Dx2Y2,
+};
+
+struct RealState {
+    int n;
+    RealOrbital orbital;
+    int nuclearCharge;
+};
+
 bool isValid(const ComplexState& state);
 std::complex<double> wavefunction(PositionAu position,
                                   const ComplexState& state);
@@ -44,5 +61,15 @@ std::complex<double> wavefunction(PositionAu position,
 double probabilityDensity(PositionAu position,
                           const Superposition& state,
                           double timeAu);
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const Superposition& state,
+                                      double timeAu);
+bool isValid(const RealState& state);
+const char* name(RealOrbital orbital);
+std::complex<double> wavefunction(PositionAu position,
+                                  const RealState& state);
+double probabilityDensity(PositionAu position, const RealState& state);
+PositionAu probabilityCurrentVelocity(PositionAu position,
+                                      const RealState& state);
 
 } // namespace quantum

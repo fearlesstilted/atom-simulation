@@ -32,6 +32,12 @@ one for a normalized state.
 One position drawn from the probability density. A rendered sphere represents
 a sample, not a physical electron or the physical size of an electron.
 
+## Probability current velocity
+
+`Im(conj(psi) * grad(psi)) / |psi|^2` in atomic units. It describes the
+flow of probability, not an electron trajectory. It is zero where density is
+numerically indistinguishable from zero.
+
 ## Node
 
 A surface or radius where the wavefunction and probability density are zero.
@@ -41,4 +47,3 @@ A hydrogenic state has `n - l - 1` radial nodes.
 
 The internal unit system. Distances are expressed in Bohr radii `a0`; display
 scaling is a rendering concern and does not alter physical coordinates.
-

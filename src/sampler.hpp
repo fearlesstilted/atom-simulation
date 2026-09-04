@@ -36,9 +36,12 @@ public:
                      SamplerConfig config = {});
     explicit Sampler(const quantum::Superposition& state,
                      SamplerConfig config = {});
+    explicit Sampler(const quantum::RealState& state,
+                     SamplerConfig config = {});
 
     void reset(const quantum::ComplexState& state);
     void reset(const quantum::Superposition& state);
+    void reset(const quantum::RealState& state);
     void setTime(double timeAu);
     void advance();
     const std::vector<Walker>& walkers() const;
@@ -53,7 +56,8 @@ private:
     double phaseAt(quantum::PositionAu position) const;
     double spatialScale() const;
 
-    std::variant<quantum::ComplexState, quantum::Superposition> state_;
+    std::variant<quantum::ComplexState, quantum::Superposition,
+                 quantum::RealState> state_;
     double timeAu_ = 0.0;
     SamplerConfig config_;
     std::mt19937 random_;

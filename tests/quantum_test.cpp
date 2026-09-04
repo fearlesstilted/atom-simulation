@@ -202,5 +202,61 @@ int main()
     check(std::abs(densityNow - densityLater) > 0.01,
           "interference changes density over time");
 
+    const quantum::RealState px{2, quantum::RealOrbital::Px, 1};
+    const quantum::RealState py{2, quantum::RealOrbital::Py, 1};
+    const quantum::RealState dxy{3, quantum::RealOrbital::Dxy, 1};
+    check(quantum::isValid(px), "2px is valid");
+    check(!quantum::isValid({1, quantum::RealOrbital::Px, 1}),
+          "p orbital requires n at least two");
+    checkNear(quantum::probabilityDensity({0, 1, 0}, px), 0.0, 1e-12,
+              "px has yz nodal plane");
+    checkNear(quantum::probabilityDensity({1, 0, 0}, py), 0.0, 1e-12,
+              "py has xz nodal plane");
+    checkNear(quantum::probabilityDensity({1, 0, 1}, dxy), 0.0, 1e-12,
+              "dxy has coordinate nodal planes");
+
+    const auto realIntegral = [&] {
+        constexpr int radialBins = 240;
+        constexpr int cosineBins = 40;
+        constexpr int azimuthBins = 48;
+        const double dr = 8.0 * px.n * px.n / radialBins;
+        const double dCosTheta = 2.0 / cosineBins;
+        const double dPhi = 2.0 * pi / azimuthBins;
+        double value = 0.0;
+        for (int ir = 0; ir < radialBins; ++ir) {
+            const double r = (ir + 0.5) * dr;
+            for (int it = 0; it < cosineBins; ++it) {
+                const double cosine = -1.0 + (it + 0.5) * dCosTheta;
+                const double sine = std::sqrt(1.0 - cosine * cosine);
+                for (int ip = 0; ip < azimuthBins; ++ip) {
+                    const double phi = (ip + 0.5) * dPhi;
+                    const quantum::PositionAu point{
+                        r * sine * std::cos(phi),
+                        r * sine * std::sin(phi),
+                        r * cosine,
+                    };
+                    value += quantum::probabilityDensity(point, px)
+                        * r * r * dr * dCosTheta * dPhi;
+                }
+            }
+        }
+        return value;
+    }();
+    checkNear(realIntegral, 1.0, 0.025, "real orbital is normalized");
+
+    const auto realFlow = quantum::probabilityCurrentVelocity({1, 0.5, 0.2}, px);
+    checkNear(realFlow.x, 0.0, 1e-8, "real orbital has no x flow");
+    checkNear(realFlow.y, 0.0, 1e-8, "real orbital has no y flow");
+    checkNear(realFlow.z, 0.0, 1e-8, "real orbital has no z flow");
+
+    const auto superFlow = quantum::probabilityCurrentVelocity(
+        {1, 0.5, 0.2}, superposition, 3.0);
+    check(std::isfinite(superFlow.x) && std::isfinite(superFlow.y)
+              && std::isfinite(superFlow.z),
+          "superposition current remains finite");
+    check(std::abs(superFlow.x) + std::abs(superFlow.y)
+              + std::abs(superFlow.z) > 1e-6,
+          "time-dependent superposition carries probability current");
+
     return failures == 0 ? 0 : 1;
 }

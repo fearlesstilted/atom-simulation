@@ -42,6 +42,7 @@ restart while editing. GLSL shaders reload inside the running process.
 | `S` | Toggle time-dependent superposition |
 | `B` | Toggle complex/real basis |
 | `O` | Cycle named real orbital |
+| `X` | Cycle density slice plane |
 | `D` | Toggle automatic state sequence |
 | `R` | Toggle camera rotation |
 | `Shift+R` | Reverse camera rotation |

@@ -19,5 +19,9 @@ void main()
                                  viewDirection), 0.0), 24.0);
     vec3 color = phaseColor * (0.35 + 1.15 * diffuse);
     color += vec3(specular * 1.5);
+    float distanceToCamera = length(viewPos - fragPosition);
+    float depthFade = mix(0.42, 1.0,
+                          exp(-0.032 * max(distanceToCamera - 8.0, 0.0)));
+    color *= depthFade;
     finalColor = vec4(color, 1.0);
 }

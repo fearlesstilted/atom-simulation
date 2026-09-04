@@ -254,6 +254,60 @@ struct ShaderWatcher {
     std::filesystem::file_time_type fragmentStamp;
 };
 
+struct DensitySlice {
+    static constexpr int resolution = 240;
+    Texture2D texture{};
+    std::vector<Color> pixels;
+    std::vector<std::complex<double>> amplitudes;
+    int plane = 0;
+};
+
+const char* slicePlaneName(int plane)
+{
+    if (plane == 1) return "z = 0";
+    if (plane == 2) return "y = 0";
+    if (plane == 3) return "x = 0";
+    return "off";
+}
+
+template <typename Evaluate>
+void updateDensitySlice(DensitySlice& slice, double extent,
+                        Evaluate evaluate)
+{
+    constexpr double pi = 3.14159265358979323846;
+    double maximumDensity = 0.0;
+    for (int row = 0; row < DensitySlice::resolution; ++row) {
+        for (int column = 0; column < DensitySlice::resolution; ++column) {
+            const double horizontal = extent
+                * (2.0 * column / (DensitySlice::resolution - 1.0) - 1.0);
+            const double vertical = extent
+                * (1.0 - 2.0 * row / (DensitySlice::resolution - 1.0));
+            quantum::PositionAu position{};
+            if (slice.plane == 1) position = {horizontal, vertical, 0.0};
+            if (slice.plane == 2) position = {horizontal, 0.0, vertical};
+            if (slice.plane == 3) position = {0.0, horizontal, vertical};
+            const std::size_t index = static_cast<std::size_t>(row)
+                * DensitySlice::resolution + column;
+            slice.amplitudes[index] = evaluate(position);
+            maximumDensity = std::max(
+                maximumDensity, std::norm(slice.amplitudes[index]));
+        }
+    }
+
+    for (std::size_t i = 0; i < slice.amplitudes.size(); ++i) {
+        const double relativeDensity = maximumDensity == 0.0
+            ? 0.0 : std::norm(slice.amplitudes[i]) / maximumDensity;
+        const float value = static_cast<float>(
+            std::pow(relativeDensity, 0.22));
+        const float hue = static_cast<float>(
+            (std::arg(slice.amplitudes[i]) + pi) * 180.0 / pi);
+        Color color = ColorFromHSV(hue, 0.68f, value);
+        color.a = 245;
+        slice.pixels[i] = color;
+    }
+    UpdateTexture(slice.texture, slice.pixels.data());
+}
+
 bool reloadShaderIfChanged(ShaderWatcher& watcher, Shader& shader,
                            Material& material, int& phaseColorLocation)
 {
@@ -275,6 +329,23 @@ bool reloadShaderIfChanged(ShaderWatcher& watcher, Shader& shader,
     configureShader(shader);
     phaseColorLocation = GetShaderLocation(shader, "phaseColor");
     material.shader = shader;
+    UnloadShader(previous);
+    return true;
+}
+
+bool reloadBloomIfChanged(const std::filesystem::path& path,
+                          std::filesystem::file_time_type& stamp,
+                          Shader& shader, Vector2 resolution)
+{
+    const auto nextStamp = std::filesystem::last_write_time(path);
+    if (nextStamp == stamp) return false;
+    stamp = nextStamp;
+    Shader replacement = LoadShader(nullptr, path.c_str());
+    if (!IsShaderValid(replacement)) return false;
+    const Shader previous = shader;
+    shader = replacement;
+    const int location = GetShaderLocation(shader, "resolution");
+    SetShaderValue(shader, location, &resolution, SHADER_UNIFORM_VEC2);
     UnloadShader(previous);
     return true;
 }
@@ -343,6 +414,27 @@ int main()
 
     Material material = LoadMaterialDefault();
     material.shader = shader;
+    const std::filesystem::path bloomPath =
+        std::filesystem::path(ATOM_SHADER_DIR) / "bloom.frag";
+    auto bloomStamp = std::filesystem::last_write_time(bloomPath);
+    Shader bloomShader = LoadShader(nullptr, bloomPath.c_str());
+    const Vector2 renderResolution{
+        static_cast<float>(screenWidth), static_cast<float>(screenHeight)};
+    const int bloomResolutionLocation =
+        GetShaderLocation(bloomShader, "resolution");
+    SetShaderValue(bloomShader, bloomResolutionLocation, &renderResolution,
+                   SHADER_UNIFORM_VEC2);
+    RenderTexture2D sceneTarget = LoadRenderTexture(screenWidth, screenHeight);
+
+    DensitySlice densitySlice;
+    densitySlice.pixels.resize(
+        DensitySlice::resolution * DensitySlice::resolution, BLACK);
+    densitySlice.amplitudes.resize(densitySlice.pixels.size());
+    Image sliceImage = GenImageColor(
+        DensitySlice::resolution, DensitySlice::resolution, BLACK);
+    densitySlice.texture = LoadTextureFromImage(sliceImage);
+    UnloadImage(sliceImage);
+    SetTextureFilter(densitySlice.texture, TEXTURE_FILTER_BILINEAR);
     PhaseBatches phaseBatches;
     updatePhaseBatches(phaseBatches, particles, 0.055f);
 
@@ -364,6 +456,8 @@ int main()
     constexpr float morphDuration = 5.0f;
     float morphElapsed = morphDuration;
     float shaderCheckElapsed = 0.0f;
+    float sliceElapsed = 0.0f;
+    bool sliceDirty = false;
 
     while (!WindowShouldClose()) {
         const float deltaTime = GetFrameTime();
@@ -371,6 +465,8 @@ int main()
         if (shaderCheckElapsed >= 0.25f) {
             reloadShaderIfChanged(shaderWatcher, shader, material,
                                   phaseColorLocation);
+            reloadBloomIfChanged(
+                bloomPath, bloomStamp, bloomShader, renderResolution);
             shaderCheckElapsed = 0.0f;
         }
         const bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT)
@@ -421,6 +517,10 @@ int main()
                 orbital.n = wrap(orbital.n + 1, 1, 5);
             }
             orbitalChanged = true;
+        }
+        if (IsKeyPressed(KEY_X)) {
+            densitySlice.plane = (densitySlice.plane + 1) % 4;
+            sliceDirty = densitySlice.plane != 0;
         }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
@@ -495,6 +595,7 @@ int main()
             }
             beginMorph(particles, sampler.walkers());
             morphElapsed = 0.0f;
+            sliceDirty = densitySlice.plane != 0;
         }
 
         if (superpositionMode) {
@@ -514,6 +615,36 @@ int main()
         }
         updatePhaseBatches(phaseBatches, particles, 0.055f);
 
+        sliceElapsed += deltaTime;
+        if (densitySlice.plane != 0
+            && (sliceDirty || (superpositionMode && sliceElapsed >= 0.15f))) {
+            const double extent = 1.65 * orbital.n * orbital.n
+                / orbital.nuclearCharge;
+            if (realMode) {
+                const quantum::RealState state{
+                    orbital.n, realOrbital, orbital.nuclearCharge};
+                updateDensitySlice(densitySlice, extent,
+                    [&](quantum::PositionAu position) {
+                        return quantum::wavefunction(position, state);
+                    });
+            } else if (superpositionMode) {
+                const auto state = quantum::equalSuperposition(
+                    orbital, secondaryOrbital);
+                updateDensitySlice(densitySlice, extent,
+                    [&](quantum::PositionAu position) {
+                        return quantum::wavefunction(
+                            position, state, quantumTimeAu);
+                    });
+            } else {
+                updateDensitySlice(densitySlice, extent,
+                    [&](quantum::PositionAu position) {
+                        return quantum::wavefunction(position, orbital);
+                    });
+            }
+            sliceDirty = false;
+            sliceElapsed = 0.0f;
+        }
+
         const float cameraPosition[] = {
             camera.position.x,
             camera.position.y,
@@ -526,7 +657,7 @@ int main()
             SHADER_UNIFORM_VEC3
         );
 
-        BeginDrawing();
+        BeginTextureMode(sceneTarget);
         ClearBackground({3, 4, 10, 255});
 
         BeginMode3D(camera);
@@ -557,6 +688,38 @@ int main()
         EndBlendMode();
         DrawSphere({0.0f, 0.0f, 0.0f}, 0.12f, GOLD);
         EndMode3D();
+        EndTextureMode();
+
+        BeginDrawing();
+        ClearBackground(BLACK);
+        BeginShaderMode(bloomShader);
+        DrawTextureRec(sceneTarget.texture,
+                       {0.0f, 0.0f, static_cast<float>(screenWidth),
+                        -static_cast<float>(screenHeight)},
+                       {0.0f, 0.0f}, WHITE);
+        EndShaderMode();
+
+        if (densitySlice.plane != 0) {
+            constexpr float size = 240.0f;
+            const Vector2 position{
+                screenWidth - size - 18.0f, screenHeight - size - 18.0f};
+            DrawRectangle(static_cast<int>(position.x) - 1,
+                          static_cast<int>(position.y) - 23,
+                          static_cast<int>(size) + 2,
+                          static_cast<int>(size) + 24,
+                          {3, 4, 10, 225});
+            DrawTexturePro(densitySlice.texture,
+                           {0.0f, 0.0f,
+                            static_cast<float>(DensitySlice::resolution),
+                            static_cast<float>(DensitySlice::resolution)},
+                           {position.x, position.y, size, size},
+                           {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawTextEx(hudFont,
+                       TextFormat("density slice  %s", slicePlaneName(
+                           densitySlice.plane)),
+                       {position.x, position.y - 20.0f}, 14.0f, 0.0f,
+                       {170, 178, 192, 220});
+        }
 
         std::string stateLabel;
         double energy = quantum::energyHartree(orbital);
@@ -601,6 +764,9 @@ int main()
         realOrbital,
     });
     UnloadMesh(sphere);
+    UnloadRenderTexture(sceneTarget);
+    UnloadTexture(densitySlice.texture);
+    UnloadShader(bloomShader);
     UnloadMaterial(material);
     if (unloadHudFont) UnloadFont(hudFont);
     CloseWindow();

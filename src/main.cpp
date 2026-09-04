@@ -24,9 +24,11 @@ struct Particle {
     Vector3 position;
     Vector3 target;
     Vector3 pendingTarget;
+    Vector3 morphStart;
     float opacity;
     double phase;
     double targetPhase;
+    double morphStartPhase;
     MotionPhase motion;
 };
 
@@ -86,16 +88,51 @@ std::vector<Particle> makeParticles(
     particles.reserve(walkers.size());
     for (std::size_t i = 0; i < walkers.size(); ++i) {
         const Vector3 target = displayPosition(walkers[i].position);
-        particles.push_back({spawnOutside(target, i), target, target, 0.0f,
+        const Vector3 start = spawnOutside(target, i);
+        particles.push_back({start, target, target, start, 0.0f,
                              walkers[i].phase, walkers[i].phase,
+                             walkers[i].phase,
                              MotionPhase::Entering});
     }
     return particles;
 }
 
+void beginMorph(std::vector<Particle>& particles,
+                const std::vector<sampling::Walker>& walkers)
+{
+    assert(particles.size() == walkers.size());
+    for (std::size_t i = 0; i < particles.size(); ++i) {
+        Particle& particle = particles[i];
+        particle.morphStart = particle.position;
+        particle.morphStartPhase = particle.phase;
+        particle.target = displayPosition(walkers[i].position);
+        particle.pendingTarget = particle.target;
+        particle.targetPhase = walkers[i].phase;
+        particle.opacity = 1.0f;
+        particle.motion = MotionPhase::Moving;
+    }
+}
+
+float smootherStep(float progress)
+{
+    const float t = std::clamp(progress, 0.0f, 1.0f);
+    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+void updateMorph(std::vector<Particle>& particles, float progress)
+{
+    constexpr double twoPi = 2.0 * 3.14159265358979323846;
+    const float amount = smootherStep(progress);
+    for (Particle& particle : particles) {
+        particle.position = Vector3Lerp(
+            particle.morphStart, particle.target, amount);
+        particle.phase = particle.morphStartPhase + std::remainder(
+            particle.targetPhase - particle.morphStartPhase, twoPi) * amount;
+    }
+}
+
 void retargetParticles(std::vector<Particle>& particles,
-                       const std::vector<sampling::Walker>& walkers,
-                       bool forceRespawn)
+                       const std::vector<sampling::Walker>& walkers)
 {
     assert(particles.size() == walkers.size());
     constexpr float longJump = 0.8f;
@@ -104,10 +141,7 @@ void retargetParticles(std::vector<Particle>& particles,
         const Vector3 next = displayPosition(walkers[i].position);
         particle.targetPhase = walkers[i].phase;
 
-        if (forceRespawn) {
-            particle.pendingTarget = next;
-            particle.motion = MotionPhase::FadingOut;
-        } else if (particle.motion == MotionPhase::FadingOut) {
+        if (particle.motion == MotionPhase::FadingOut) {
             particle.pendingTarget = next;
         } else if (Vector3Distance(particle.target, next) > longJump) {
             particle.pendingTarget = next;
@@ -222,6 +256,9 @@ int main()
     quantum::ComplexState controlTest{1, 0, 0, 1};
     changeOrbital(controlTest, 'n', -1);
     assert(controlTest.n == 5);
+    assert(smootherStep(0.0f) == 0.0f
+        && smootherStep(0.5f) == 0.5f
+        && smootherStep(1.0f) == 1.0f);
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
@@ -275,7 +312,9 @@ int main()
     float autoRotationSpeed = saved.autoRotationSpeed;
     bool demoMode = saved.demoMode;
     float demoElapsed = 0.0f;
-    constexpr float demoInterval = 6.0f;
+    constexpr float demoInterval = 12.0f;
+    constexpr float morphDuration = 5.0f;
+    float morphElapsed = morphDuration;
     float shaderCheckElapsed = 0.0f;
 
     while (!WindowShouldClose()) {
@@ -366,17 +405,23 @@ int main()
             } else {
                 sampler.reset(orbital);
             }
-            retargetParticles(particles, sampler.walkers(), true);
+            beginMorph(particles, sampler.walkers());
+            morphElapsed = 0.0f;
         }
 
-        if (superpositionMode) {
-            constexpr double quantumTimePerSecond = 4.0;
-            quantumTimeAu += quantumTimePerSecond * deltaTime;
-            sampler.setTime(quantumTimeAu);
+        if (morphElapsed < morphDuration) {
+            morphElapsed = std::min(morphElapsed + deltaTime, morphDuration);
+            updateMorph(particles, morphElapsed / morphDuration);
+        } else {
+            if (superpositionMode) {
+                constexpr double quantumTimePerSecond = 4.0;
+                quantumTimeAu += quantumTimePerSecond * deltaTime;
+                sampler.setTime(quantumTimeAu);
+            }
+            sampler.advance();
+            retargetParticles(particles, sampler.walkers());
+            updateParticles(particles, deltaTime);
         }
-        sampler.advance();
-        retargetParticles(particles, sampler.walkers(), false);
-        updateParticles(particles, deltaTime);
         updatePhaseBatches(phaseBatches, particles, 0.055f);
 
         const float cameraPosition[] = {

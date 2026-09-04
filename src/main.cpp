@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include "raymath.h"
+#include "motion.hpp"
 #include "quantum.hpp"
 #include "sampler.hpp"
 #include "settings.hpp"
@@ -14,26 +15,32 @@
 #include <string>
 #include <vector>
 
-enum class MotionPhase {
-    Moving,
-    FadingOut,
-    Entering,
-};
-
 struct Particle {
     Vector3 position;
+    Vector3 velocity;
     Vector3 target;
-    Vector3 pendingTarget;
-    Vector3 morphStart;
     float opacity;
     double phase;
+    double phaseVelocity;
     double targetPhase;
-    double morphStartPhase;
-    MotionPhase motion;
 };
 
 constexpr std::size_t phaseBinCount = 12;
 using PhaseBatches = std::array<std::vector<Matrix>, phaseBinCount>;
+constexpr std::array<Color, phaseBinCount> phasePalette{{
+    {45, 22, 73, 255},
+    {64, 25, 91, 255},
+    {88, 28, 105, 255},
+    {119, 29, 101, 255},
+    {154, 35, 87, 255},
+    {190, 51, 67, 255},
+    {216, 86, 45, 255},
+    {230, 136, 47, 255},
+    {224, 178, 78, 255},
+    {216, 202, 151, 255},
+    {193, 177, 166, 255},
+    {103, 61, 109, 255},
+}};
 
 constexpr std::array realOrbitals{
     quantum::RealOrbital::Px,
@@ -109,51 +116,14 @@ std::vector<Particle> makeParticles(
     for (std::size_t i = 0; i < walkers.size(); ++i) {
         const Vector3 target = displayPosition(walkers[i].position);
         const Vector3 start = spawnOutside(target, i);
-        particles.push_back({start, target, target, start, 0.0f,
-                             walkers[i].phase, walkers[i].phase,
-                             walkers[i].phase,
-                             MotionPhase::Entering});
+        particles.push_back({start, {}, target, 0.0f,
+                             walkers[i].phase, 0.0, walkers[i].phase});
     }
     return particles;
 }
 
-void beginMorph(std::vector<Particle>& particles,
-                const std::vector<sampling::Walker>& walkers)
-{
-    assert(particles.size() == walkers.size());
-    for (std::size_t i = 0; i < particles.size(); ++i) {
-        Particle& particle = particles[i];
-        particle.morphStart = particle.position;
-        particle.morphStartPhase = particle.phase;
-        particle.target = displayPosition(walkers[i].position);
-        particle.pendingTarget = particle.target;
-        particle.targetPhase = walkers[i].phase;
-        particle.opacity = 1.0f;
-        particle.motion = MotionPhase::Moving;
-    }
-}
-
-float smootherStep(float progress)
-{
-    const float t = std::clamp(progress, 0.0f, 1.0f);
-    const float smooth = t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-    return 0.12f * t + 0.88f * smooth;
-}
-
-void updateMorph(std::vector<Particle>& particles, float progress)
-{
-    constexpr double twoPi = 2.0 * 3.14159265358979323846;
-    const float amount = smootherStep(progress);
-    for (Particle& particle : particles) {
-        particle.position = Vector3Lerp(
-            particle.morphStart, particle.target, amount);
-        particle.phase = particle.morphStartPhase + std::remainder(
-            particle.targetPhase - particle.morphStartPhase, twoPi) * amount;
-    }
-}
-
-void updateMorphTargets(std::vector<Particle>& particles,
-                        const std::vector<sampling::Walker>& walkers)
+void updateParticleTargets(std::vector<Particle>& particles,
+                           const std::vector<sampling::Walker>& walkers)
 {
     assert(particles.size() == walkers.size());
     for (std::size_t i = 0; i < particles.size(); ++i) {
@@ -162,56 +132,35 @@ void updateMorphTargets(std::vector<Particle>& particles,
     }
 }
 
-void retargetParticles(std::vector<Particle>& particles,
-                       const std::vector<sampling::Walker>& walkers)
+void advanceAxis(float& position, float& velocity, float target,
+                 const motion::CriticalSpringStep& spring)
 {
-    assert(particles.size() == walkers.size());
-    constexpr float longJump = 0.8f;
-    for (std::size_t i = 0; i < particles.size(); ++i) {
-        Particle& particle = particles[i];
-        const Vector3 next = displayPosition(walkers[i].position);
-        particle.targetPhase = walkers[i].phase;
-
-        if (particle.motion == MotionPhase::FadingOut) {
-            particle.pendingTarget = next;
-        } else if (Vector3Distance(particle.target, next) > longJump) {
-            particle.pendingTarget = next;
-            particle.motion = MotionPhase::FadingOut;
-        } else {
-            particle.target = next;
-            particle.pendingTarget = next;
-        }
-    }
+    const auto next = spring.advance({position, velocity}, target);
+    position = static_cast<float>(next.position);
+    velocity = static_cast<float>(next.velocity);
 }
 
 void updateParticles(std::vector<Particle>& particles, float deltaTime)
 {
-    const float easing = 1.0f - std::exp(-7.0f * deltaTime);
-    for (std::size_t i = 0; i < particles.size(); ++i) {
-        Particle& particle = particles[i];
-        if (particle.motion == MotionPhase::FadingOut) {
-            particle.opacity = std::max(0.0f, particle.opacity - 3.0f * deltaTime);
-            if (particle.opacity == 0.0f) {
-                particle.target = particle.pendingTarget;
-                particle.position = spawnOutside(particle.target, i);
-                particle.phase = particle.targetPhase;
-                particle.motion = MotionPhase::Entering;
-            }
-            continue;
-        }
+    constexpr double frequency = 0.85;
+    constexpr double twoPi = 2.0 * 3.14159265358979323846;
+    const motion::CriticalSpringStep spring(frequency, deltaTime);
+    const float fade = 1.0f - std::exp(-1.8f * deltaTime);
+    for (Particle& particle : particles) {
+        advanceAxis(particle.position.x, particle.velocity.x,
+                    particle.target.x, spring);
+        advanceAxis(particle.position.y, particle.velocity.y,
+                    particle.target.y, spring);
+        advanceAxis(particle.position.z, particle.velocity.z,
+                    particle.target.z, spring);
 
-        particle.position = Vector3Lerp(
-            particle.position, particle.target, easing);
-        particle.phase += std::remainder(
-            particle.targetPhase - particle.phase,
-            2.0 * 3.14159265358979323846
-        ) * easing;
-        if (particle.motion == MotionPhase::Entering) {
-            particle.opacity = std::min(1.0f, particle.opacity + 1.8f * deltaTime);
-            if (particle.opacity == 1.0f) {
-                particle.motion = MotionPhase::Moving;
-            }
-        }
+        const double nearestTarget = particle.phase + std::remainder(
+            particle.targetPhase - particle.phase, twoPi);
+        const auto nextPhase = spring.advance(
+            {particle.phase, particle.phaseVelocity}, nearestTarget);
+        particle.phase = nextPhase.position;
+        particle.phaseVelocity = nextPhase.velocity;
+        particle.opacity += (1.0f - particle.opacity) * fade;
     }
 }
 
@@ -299,9 +248,14 @@ void updateDensitySlice(DensitySlice& slice, double extent,
             ? 0.0 : std::norm(slice.amplitudes[i]) / maximumDensity;
         const float value = static_cast<float>(
             std::pow(relativeDensity, 0.22));
-        const float hue = static_cast<float>(
-            (std::arg(slice.amplitudes[i]) + pi) * 180.0 / pi);
-        Color color = ColorFromHSV(hue, 0.68f, value);
+        const double normalizedPhase =
+            (std::arg(slice.amplitudes[i]) + pi) / (2.0 * pi);
+        const std::size_t bin = static_cast<std::size_t>(
+            std::floor(normalizedPhase * phaseBinCount)) % phaseBinCount;
+        Color color = phasePalette[bin];
+        color.r = static_cast<unsigned char>(color.r * value);
+        color.g = static_cast<unsigned char>(color.g * value);
+        color.b = static_cast<unsigned char>(color.b * value);
         color.a = 245;
         slice.pixels[i] = color;
     }
@@ -358,9 +312,6 @@ int main()
     quantum::ComplexState controlTest{1, 0, 0, 1};
     changeOrbital(controlTest, 'n', -1);
     assert(controlTest.n == 5);
-    assert(smootherStep(0.0f) == 0.0f
-        && smootherStep(0.5f) == 0.5f
-        && smootherStep(1.0f) == 1.0f);
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Atomic Orbital Lab");
@@ -453,8 +404,6 @@ int main()
     bool demoMode = saved.demoMode;
     float demoElapsed = 0.0f;
     constexpr float demoInterval = 12.0f;
-    constexpr float morphDuration = 5.0f;
-    float morphElapsed = morphDuration;
     float shaderCheckElapsed = 0.0f;
     float sliceElapsed = 0.0f;
     bool sliceDirty = false;
@@ -593,8 +542,6 @@ int main()
             } else {
                 sampler.reset(orbital);
             }
-            beginMorph(particles, sampler.walkers());
-            morphElapsed = 0.0f;
             sliceDirty = densitySlice.plane != 0;
         }
 
@@ -605,14 +552,8 @@ int main()
         }
         sampler.advance();
 
-        if (morphElapsed < morphDuration) {
-            morphElapsed = std::min(morphElapsed + deltaTime, morphDuration);
-            updateMorphTargets(particles, sampler.walkers());
-            updateMorph(particles, morphElapsed / morphDuration);
-        } else {
-            retargetParticles(particles, sampler.walkers());
-            updateParticles(particles, deltaTime);
-        }
+        updateParticleTargets(particles, sampler.walkers());
+        updateParticles(particles, deltaTime);
         updatePhaseBatches(phaseBatches, particles, 0.055f);
 
         sliceElapsed += deltaTime;
@@ -658,19 +599,14 @@ int main()
         );
 
         BeginTextureMode(sceneTarget);
-        ClearBackground({3, 4, 10, 255});
+        ClearBackground(BLACK);
 
         BeginMode3D(camera);
-        BeginBlendMode(BLEND_ADDITIVE);
         for (std::size_t bin = 0; bin < phaseBatches.size(); ++bin) {
             auto& transforms = phaseBatches[bin];
             if (transforms.empty()) continue;
 
-            const Color color = ColorFromHSV(
-                static_cast<float>(bin) * 360.0f / phaseBinCount,
-                0.72f,
-                1.0f
-            );
+            const Color color = phasePalette[bin];
             const float phaseColor[] = {
                 color.r / 255.0f,
                 color.g / 255.0f,
@@ -685,8 +621,7 @@ int main()
                 static_cast<int>(transforms.size())
             );
         }
-        EndBlendMode();
-        DrawSphere({0.0f, 0.0f, 0.0f}, 0.12f, GOLD);
+        DrawSphere({0.0f, 0.0f, 0.0f}, 0.12f, {145, 35, 43, 255});
         EndMode3D();
         EndTextureMode();
 

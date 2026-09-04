@@ -27,5 +27,5 @@ void main()
     glow += brightSample(fragTexCoord + vec2(-4.0,  4.0) * texel) * 0.5;
     glow += brightSample(fragTexCoord + vec2( 4.0, -4.0) * texel) * 0.5;
     glow += brightSample(fragTexCoord + vec2(-4.0, -4.0) * texel) * 0.5;
-    finalColor = vec4(base + glow * 0.07, 1.0) * fragColor;
+    finalColor = vec4(base + glow * 0.04, 1.0) * fragColor;
 }

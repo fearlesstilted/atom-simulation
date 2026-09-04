@@ -46,8 +46,12 @@ target_include_directories(settings PUBLIC src)
 target_link_libraries(settings PUBLIC quantum)
 atom_target_defaults(settings)
 
+add_library(motion src/motion.cpp)
+target_include_directories(motion PUBLIC src)
+atom_target_defaults(motion)
+
 add_executable(atom src/main.cpp)
-target_link_libraries(atom PRIVATE raylib quantum sampler state_sequence settings)
+target_link_libraries(atom PRIVATE raylib quantum sampler state_sequence settings motion)
 atom_target_defaults(atom)
 target_compile_definitions(atom PRIVATE
     ATOM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
@@ -73,3 +77,8 @@ add_executable(settings_test tests/settings_test.cpp)
 target_link_libraries(settings_test PRIVATE settings)
 atom_target_defaults(settings_test)
 add_test(NAME settings_test COMMAND settings_test)
+
+add_executable(motion_test tests/motion_test.cpp)
+target_link_libraries(motion_test PRIVATE motion)
+atom_target_defaults(motion_test)
+add_test(NAME motion_test COMMAND motion_test)
